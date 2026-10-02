@@ -1,0 +1,16 @@
+# Large/raw dataset - not needed in repo
+Dataset/complaints.csv
+
+# Database file - regenerate from scripts instead
+Dataset/grievanceiq.db
+
+# Node dependencies - regenerate with npm install
+frontend/node_modules/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Trained model files (optional - these are a few MB, fine to include if you want)
+# Python_codes/classifier.pkl
+# Python_codes/vectorizer.pkl
