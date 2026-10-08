@@ -11,6 +11,8 @@ frontend/node_modules/
 __pycache__/
 *.pyc
 
+db_url.txt
+
 # Trained model files (optional - these are a few MB, fine to include if you want)
 # Python_codes/classifier.pkl
-# Python_codes/vectorizer.pkl
+# Python_codes/vectorizer.pkldb_url.txt 

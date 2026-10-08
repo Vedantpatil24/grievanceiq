@@ -20,7 +20,7 @@ const ShieldIcon = () => (
   </svg>
 );
 
-function Home() {
+function Home({ userToken, adminToken }) {
   return (
     <div>
       <div className="hero-section">
@@ -34,27 +34,88 @@ function Home() {
             textTransform: "uppercase",
             marginBottom: "0.9rem",
           }}>
-            Complaint Intelligence for BFSI
+            Automated BFSI Grievance Triage & Resolution
           </div>
-          <h1 style={{ fontSize: "2.5rem", fontWeight: 800, color: "#16222E", marginBottom: "1rem", letterSpacing: "-0.02em", lineHeight: 1.2 }}>
-            Every complaint, routed with precision.
+          <h1 style={{ fontSize: "2.6rem", fontWeight: 800, color: "#16222E", marginBottom: "1rem", letterSpacing: "-0.02em", lineHeight: 1.2 }}>
+            Every banking complaint, triaged with machine precision.
           </h1>
-          <p style={{ fontSize: "1.08rem", color: "#5c564e", maxWidth: "520px", margin: "0 auto 1.8rem", lineHeight: 1.6 }}>
-            GrievanceIQ classifies, prioritizes, and tracks every complaint automatically —
-            giving your customers clarity and your team control.
+          <p style={{ fontSize: "1.08rem", color: "#5c564e", maxWidth: "600px", margin: "0 auto 2rem", lineHeight: 1.6 }}>
+            Powered by high-accuracy SVM classification across Indian banking departments, 
+            fair bot-worker load distribution, and automated regulatory SLA tracking.
           </p>
-        <div style={{ display: "flex", gap: "0.85rem", justifyContent: "center", flexWrap: "wrap" }}>
-  <Link to="/submit">
-    <button style={{ padding: "0.85rem 1.8rem", fontSize: "1rem" }}>
-      Submit a Complaint
-    </button>
-  </Link>
-  <Link to="/track">
-    <button style={{ padding: "0.85rem 1.8rem", fontSize: "1rem" }}>
-      Track Your Complaint
-    </button>
-  </Link>
-</div>
+
+          {/* TWO DEDICATED LOGIN PORTALS */}
+          <div style={{ display: "flex", gap: "1.2rem", justifyContent: "center", flexWrap: "wrap", marginBottom: "1.5rem" }}>
+            <div style={{
+              backgroundColor: "#ffffff",
+              padding: "1.4rem 1.6rem",
+              borderRadius: "10px",
+              border: "1px solid #d1d5db",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+              minWidth: "260px",
+              textAlign: "left"
+            }}>
+              <div style={{ fontSize: "0.8rem", fontWeight: 700, color: "#166534", textTransform: "uppercase", marginBottom: "0.3rem" }}>
+                Customer Portal
+              </div>
+              <h3 style={{ fontSize: "1.15rem", fontWeight: 700, color: "#16222E", marginBottom: "0.4rem" }}>
+                User Access
+              </h3>
+              <p style={{ fontSize: "0.85rem", color: "#6b655c", marginBottom: "1rem" }}>
+                Lodge new grievances, check resolution stages, and see full past history.
+              </p>
+              {userToken ? (
+                <div style={{ display: "flex", gap: "0.5rem" }}>
+                  <Link to="/submit"><button style={{ padding: "0.55rem 1rem", fontSize: "0.85rem" }}>Submit Grievance</button></Link>
+                  <Link to="/user/dashboard"><button style={{ padding: "0.55rem 1rem", fontSize: "0.85rem", backgroundColor: "#f3f4f6", color: "#1f2937", border: "1px solid #d1d5db" }}>My Dashboard</button></Link>
+                </div>
+              ) : (
+                <div style={{ display: "flex", gap: "0.5rem" }}>
+                  <Link to="/user/login">
+                    <button style={{ padding: "0.6rem 1.2rem", fontSize: "0.9rem", width: "100%" }}>
+                      User Sign In / Register
+                    </button>
+                  </Link>
+                </div>
+              )}
+            </div>
+
+            <div style={{
+              backgroundColor: "#ffffff",
+              padding: "1.4rem 1.6rem",
+              borderRadius: "10px",
+              border: "1px solid #d1d5db",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+              minWidth: "260px",
+              textAlign: "left"
+            }}>
+              <div style={{ fontSize: "0.8rem", fontWeight: 700, color: "#B5793A", textTransform: "uppercase", marginBottom: "0.3rem" }}>
+                Operations & Governance
+              </div>
+              <h3 style={{ fontSize: "1.15rem", fontWeight: 700, color: "#16222E", marginBottom: "0.4rem" }}>
+                Admin & Officer Login
+              </h3>
+              <p style={{ fontSize: "0.85rem", color: "#6b655c", marginBottom: "1rem" }}>
+                Monitor 25 bot workers, SLA breaches, triage queue, and bank rankings.
+              </p>
+              <Link to="/admin">
+                <button
+                  style={{
+                    padding: "0.75rem 1.4rem",
+                    fontSize: "0.95rem",
+                    width: "100%",
+                    backgroundColor: "#16222E",
+                    color: "#FFFFFF",
+                    border: "1.5px solid #16222E",
+                    fontWeight: 700,
+                    cursor: "pointer"
+                  }}
+                >
+                  {adminToken ? "Open Admin Dashboard" : "Admin Sign In"}
+                </button>
+              </Link>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -62,66 +123,31 @@ function Home() {
         <div className="feature-card" style={{ flex: 1, minWidth: "220px" }}>
           <div className="icon-badge"><TagIcon /></div>
           <h3 style={{ fontSize: "1.05rem", marginBottom: "0.4rem", color: "#16222E", fontWeight: 700 }}>
-            Smart Categorization
+            5 Core Banking Departments
           </h3>
           <p style={{ color: "#6b655c", fontSize: "0.9rem", lineHeight: 1.5 }}>
-            Every complaint is automatically sorted into the right department — no manual triage needed.
+            Trained on 20,000 Indian banking complaints with high precision across Digital/UPI, Loans, Cards, Accounts, and Fraud.
           </p>
         </div>
 
         <div className="feature-card" style={{ flex: 1, minWidth: "220px" }}>
           <div className="icon-badge"><BoltIcon /></div>
           <h3 style={{ fontSize: "1.05rem", marginBottom: "0.4rem", color: "#16222E", fontWeight: 700 }}>
-            Priority Routing
+            Fair Bot Auto-Assignment
           </h3>
           <p style={{ color: "#6b655c", fontSize: "0.9rem", lineHeight: 1.5 }}>
-            Urgent issues are flagged instantly, so the most critical complaints get seen first.
+            Every validated grievance is automatically routed to one of 5 dedicated bots per department with least-loaded balancing.
           </p>
         </div>
 
         <div className="feature-card" style={{ flex: 1, minWidth: "220px" }}>
           <div className="icon-badge"><ShieldIcon /></div>
           <h3 style={{ fontSize: "1.05rem", marginBottom: "0.4rem", color: "#16222E", fontWeight: 700 }}>
-            Full Transparency
+            Strict Regulatory SLAs
           </h3>
           <p style={{ color: "#6b655c", fontSize: "0.9rem", lineHeight: 1.5 }}>
-            Use your tracking token anytime to see your complaint's status, department, and priority.
+            24h for High, 7d for Medium, 30d for Low urgency. Automatic escalation and higher authority reporting upon breach.
           </p>
-        </div>
-      </div>
-
-      <div className="card card-accent">
-        <h2 style={{ fontSize: "1.25rem", marginBottom: "1.2rem", color: "#16222E", fontWeight: 700 }}>
-          How it works
-        </h2>
-        <div style={{ display: "flex", gap: "1.5rem", flexWrap: "wrap" }}>
-          {[
-            ["1", "Submit your complaint"],
-            ["2", "Receive a tracking token"],
-            ["3", "We classify and prioritize it"],
-            ["4", "Track progress anytime"],
-          ].map(([num, text]) => (
-            <div key={num} style={{ flex: 1, minWidth: "140px", display: "flex", gap: "0.75rem", alignItems: "flex-start" }}>
-              <div
-                style={{
-                  width: "28px",
-                  height: "28px",
-                  borderRadius: "50%",
-                  backgroundColor: "#16222E",
-                  color: "#F7F3EC",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontWeight: 700,
-                  fontSize: "0.85rem",
-                  flexShrink: 0,
-                }}
-              >
-                {num}
-              </div>
-              <p style={{ color: "#5c564e", fontSize: "0.9rem", paddingTop: "0.3rem" }}>{text}</p>
-            </div>
-          ))}
         </div>
       </div>
     </div>
