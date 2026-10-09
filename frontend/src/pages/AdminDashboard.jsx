@@ -47,6 +47,7 @@ const SIDEBAR_ITEMS = [
   { id: "departments",icon: "🏢", label: "Departments & Officers" },
   { id: "analytics",  icon: "📊", label: "Analytics" },
   { id: "leaderboard",icon: "🏆", label: "Leaderboard" },
+  { id: "simulation", icon: "🔮", label: "What-If Simulation" },
   { id: "clusters",   icon: "🔍", label: "Complaint Clusters" },
   { id: "audit",      icon: "🛡️", label: "Audit Logs" },
 ];
@@ -1085,6 +1086,379 @@ function AuditLogsTab({ token }) {
   );
 }
 
+/* ────────────────── TAB: WHAT-IF SIMULATION ──────────── */
+function SimulationTab({ token }) {
+  const [options, setOptions] = useState({ banks: [], departments: [] });
+  const [selectedBank, setSelectedBank] = useState("");
+  const [selectedDept, setSelectedDept] = useState("");
+  const [addWorkers, setAddWorkers] = useState(0);
+  const [volumeChange, setVolumeChange] = useState(0);
+  const [simResult, setSimResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [initLoading, setInitLoading] = useState(true);
+
+  // Fetch dynamic banks and departments from DB
+  useEffect(() => {
+    axios.get(`${API}/admin/simulation/options`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(res => {
+        setOptions(res.data);
+        // Initial run with overall baseline
+        runSimulation("", "", 0, 0);
+      })
+      .catch(() => {})
+      .finally(() => setInitLoading(false));
+  }, []);
+
+  const runSimulation = (bank = selectedBank, dept = selectedDept, workers = addWorkers, vol = volumeChange) => {
+    setLoading(true);
+    axios.post(`${API}/admin/simulation/run`, {
+      bank_name: bank || null,
+      department_name: dept || null,
+      additional_workers: Number(workers) || 0,
+      volume_change_pct: Number(vol) || 0
+    }, { headers: { Authorization: `Bearer ${token}` } })
+      .then(res => setSimResult(res.data))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  };
+
+  const handleReset = () => {
+    setSelectedBank("");
+    setSelectedDept("");
+    setAddWorkers(0);
+    setVolumeChange(0);
+    runSimulation("", "", 0, 0);
+  };
+
+  if (initLoading) {
+    return <div className="loading-center"><div className="spinner"></div><span>Loading operational simulation data…</span></div>;
+  }
+
+  const cur = simResult?.current_metrics || {};
+  const sim = simResult?.simulated_metrics || {};
+  const chartData = [
+    { name: "Complaint Intake", Current: cur.complaint_volume || 0, Simulated: sim.complaint_volume || 0 },
+    { name: "Pending Queue", Current: cur.pending_complaints || 0, Simulated: sim.pending_complaints || 0 },
+    { name: "Active Staff", Current: cur.worker_count || 0, Simulated: sim.worker_count || 0 },
+    { name: "Queue / Staff", Current: cur.workload_per_worker || 0, Simulated: sim.workload_per_worker || 0 },
+  ];
+
+  const rateData = [
+    { name: "TAT (Days)", Current: cur.estimated_tat_days || 0, Simulated: sim.estimated_tat_days || 0 },
+    { name: "SLA Risk (%)", Current: cur.sla_risk_pct || 0, Simulated: sim.sla_risk_pct || 0 },
+  ];
+
+  return (
+    <div className="fade-in">
+      <div className="flex-between mb-2">
+        <div>
+          <h2 style={{ fontWeight: 800, fontSize: "1.35rem" }}>🔮 Operational What-If Simulation</h2>
+          <p className="text-muted">Simulate capacity adjustments, staff deployments, and complaint surges across Indian banks & departments</p>
+        </div>
+        <button className="btn btn-outline btn-sm" onClick={handleReset}>🔄 Reset to Baseline</button>
+      </div>
+
+      {/* Control Panel Card */}
+      <div className="card mb-3" style={{ padding: "1.25rem 1.5rem" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "1.25rem", alignItems: "end" }}>
+          {/* Bank selector */}
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label className="form-label">🏦 Regulated Bank</label>
+            <select
+              className="form-select"
+              value={selectedBank}
+              onChange={e => {
+                setSelectedBank(e.target.value);
+                runSimulation(e.target.value, selectedDept, addWorkers, volumeChange);
+              }}
+            >
+              <option value="">All Banks (System-wide)</option>
+              {options.banks.map(b => (
+                <option key={b.id} value={b.name}>{b.name} ({b.complaint_count} cases)</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Department selector */}
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label className="form-label">🏢 Banking Department</label>
+            <select
+              className="form-select"
+              value={selectedDept}
+              onChange={e => {
+                setSelectedDept(e.target.value);
+                runSimulation(selectedBank, e.target.value, addWorkers, volumeChange);
+              }}
+            >
+              <option value="">All Operational Departments</option>
+              {options.departments.map(d => (
+                <option key={d.id} value={d.name}>{d.name} ({d.worker_count} officers)</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Additional workers slider */}
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <div className="flex-between">
+              <label className="form-label">👥 Staff Adjustment</label>
+              <span style={{ fontWeight: 700, fontSize: "0.85rem", color: addWorkers >= 0 ? "var(--emerald)" : "var(--rose)" }}>
+                {addWorkers > 0 ? `+${addWorkers}` : addWorkers} Officer{Math.abs(addWorkers) === 1 ? "" : "s"}
+              </span>
+            </div>
+            <input
+              type="range"
+              min="-4"
+              max="15"
+              step="1"
+              value={addWorkers}
+              onChange={e => {
+                setAddWorkers(e.target.value);
+                runSimulation(selectedBank, selectedDept, e.target.value, volumeChange);
+              }}
+              style={{ width: "100%", accentColor: "var(--blue)" }}
+            />
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.72rem", color: "var(--text-muted)" }}>
+              <span>-4 Officers</span>
+              <span>0 (Current)</span>
+              <span>+15 Officers</span>
+            </div>
+          </div>
+
+          {/* Volume change slider */}
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <div className="flex-between">
+              <label className="form-label">📈 Complaint Volume Surge</label>
+              <span style={{ fontWeight: 700, fontSize: "0.85rem", color: volumeChange > 0 ? "var(--rose)" : volumeChange < 0 ? "var(--emerald)" : "var(--slate-700)" }}>
+                {volumeChange > 0 ? `+${volumeChange}%` : `${volumeChange}%`}
+              </span>
+            </div>
+            <input
+              type="range"
+              min="-50"
+              max="100"
+              step="5"
+              value={volumeChange}
+              onChange={e => {
+                setVolumeChange(e.target.value);
+                runSimulation(selectedBank, selectedDept, addWorkers, e.target.value);
+              }}
+              style={{ width: "100%", accentColor: "var(--gold)" }}
+            />
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.72rem", color: "var(--text-muted)" }}>
+              <span>-50% Drop</span>
+              <span>0% Baseline</span>
+              <span>+100% Surge</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Prominent Disclaimer Banner */}
+      <div style={{
+        background: "rgba(37, 99, 235, 0.08)",
+        border: "1px solid rgba(37, 99, 235, 0.25)",
+        borderRadius: "var(--radius-sm)",
+        padding: "0.75rem 1rem",
+        marginBottom: "1.25rem",
+        display: "flex",
+        alignItems: "center",
+        gap: "0.75rem",
+        fontSize: "0.83rem",
+        color: "var(--text)"
+      }}>
+        <span style={{ fontSize: "1.2rem" }}>ℹ️</span>
+        <div>
+          <strong>Operational Planning Notice:</strong> {simResult?.disclaimer}
+        </div>
+      </div>
+
+      {/* Scope Pill & Health Indicator */}
+      <div className="flex-between mb-3" style={{ background: "var(--bg-card)", border: "1px solid var(--border-color)", borderRadius: "var(--radius-sm)", padding: "0.85rem 1.25rem" }}>
+        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+          <span className="badge badge-open">🏦 {simResult?.selected_bank}</span>
+          <span className="badge badge-closed">🏢 {simResult?.selected_department}</span>
+          <span className="text-muted text-sm" style={{ marginLeft: "0.5rem" }}>
+            {simResult?.impact_summary}
+          </span>
+        </div>
+        <div>
+          <span style={{
+            background: `${sim.health_color}18`,
+            color: sim.health_color,
+            border: `1px solid ${sim.health_color}40`,
+            borderRadius: 20,
+            padding: "0.25rem 0.85rem",
+            fontWeight: 700,
+            fontSize: "0.82rem",
+            textTransform: "uppercase"
+          }}>
+            Status: {sim.health_status}
+          </span>
+        </div>
+      </div>
+
+      {/* 5 Key Metric Difference Cards */}
+      <div className="grid-4 mb-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
+        {/* Metric 1: Worker Count */}
+        <div className="stat-card" style={{ borderLeft: "4px solid var(--blue)" }}>
+          <div className="stat-icon" style={{ background: "#eff6ff" }}>👥</div>
+          <div className="stat-info" style={{ width: "100%" }}>
+            <div className="si-label">Officer Workforce</div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: "0.4rem" }}>
+              <span className="si-value">{sim.worker_count}</span>
+              <span className="text-muted text-sm">vs {cur.worker_count} base</span>
+            </div>
+            <div style={{ fontSize: "0.75rem", fontWeight: 600, color: (sim.worker_count - cur.worker_count) >= 0 ? "var(--emerald)" : "var(--rose)", marginTop: "2px" }}>
+              {(sim.worker_count - cur.worker_count) > 0 ? `+${sim.worker_count - cur.worker_count} Added` : (sim.worker_count - cur.worker_count) < 0 ? `${sim.worker_count - cur.worker_count} Reduced` : "No Change"}
+            </div>
+          </div>
+        </div>
+
+        {/* Metric 2: Complaint Volume */}
+        <div className="stat-card" style={{ borderLeft: "4px solid #7c3aed" }}>
+          <div className="stat-icon" style={{ background: "#fdf4ff" }}>📋</div>
+          <div className="stat-info" style={{ width: "100%" }}>
+            <div className="si-label">Complaint Volume</div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: "0.4rem" }}>
+              <span className="si-value">{sim.complaint_volume?.toLocaleString()}</span>
+              <span className="text-muted text-sm">vs {cur.complaint_volume?.toLocaleString()}</span>
+            </div>
+            <div style={{ fontSize: "0.75rem", fontWeight: 600, color: volumeChange > 0 ? "var(--rose)" : volumeChange < 0 ? "var(--emerald)" : "var(--text-muted)", marginTop: "2px" }}>
+              {volumeChange > 0 ? `+${volumeChange}% Volume Surge` : volumeChange < 0 ? `${volumeChange}% Volume Reduction` : "Standard Inflow"}
+            </div>
+          </div>
+        </div>
+
+        {/* Metric 3: Pending Queue */}
+        <div className="stat-card" style={{ borderLeft: "4px solid var(--gold)" }}>
+          <div className="stat-icon" style={{ background: "#fef3c7" }}>⏳</div>
+          <div className="stat-info" style={{ width: "100%" }}>
+            <div className="si-label">Pending Complaints</div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: "0.4rem" }}>
+              <span className="si-value">{sim.pending_complaints?.toLocaleString()}</span>
+              <span className="text-muted text-sm">vs {cur.pending_complaints?.toLocaleString()}</span>
+            </div>
+            <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "2px" }}>
+              <strong>{sim.workload_per_worker}</strong> per officer (base: {cur.workload_per_worker})
+            </div>
+          </div>
+        </div>
+
+        {/* Metric 4: Estimated TAT */}
+        <div className="stat-card" style={{ borderLeft: `4px solid ${sim.estimated_tat_days <= cur.estimated_tat_days ? "var(--emerald)" : "var(--rose)"}` }}>
+          <div className="stat-icon" style={{ background: "#ecfdf5" }}>⏱️</div>
+          <div className="stat-info" style={{ width: "100%" }}>
+            <div className="si-label">Estimated Resolution TAT</div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: "0.4rem" }}>
+              <span className="si-value">{sim.estimated_tat_days} d</span>
+              <span className="text-muted text-sm">vs {cur.estimated_tat_days} d</span>
+            </div>
+            <div style={{ fontSize: "0.75rem", fontWeight: 600, color: sim.tat_change_pct < 0 ? "var(--emerald)" : sim.tat_change_pct > 0 ? "var(--rose)" : "var(--text-muted)", marginTop: "2px" }}>
+              {sim.tat_change_pct < 0 ? `⚡ ${abs(sim.tat_change_pct)}% Faster` : sim.tat_change_pct > 0 ? `⚠️ +${sim.tat_change_pct}% Slower` : "Par TAT"}
+            </div>
+          </div>
+        </div>
+
+        {/* Metric 5: SLA Breach Risk */}
+        <div className="stat-card" style={{ borderLeft: `4px solid ${sim.health_color}` }}>
+          <div className="stat-icon" style={{ background: "#ffe4e6" }}>🚨</div>
+          <div className="stat-info" style={{ width: "100%" }}>
+            <div className="si-label">Projected SLA Risk</div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: "0.4rem" }}>
+              <span className="si-value" style={{ color: sim.health_color }}>{sim.sla_risk_pct}%</span>
+              <span className="text-muted text-sm">vs {cur.sla_risk_pct}%</span>
+            </div>
+            <div style={{ fontSize: "0.75rem", fontWeight: 600, color: sim.risk_change_pct < 0 ? "var(--emerald)" : sim.risk_change_pct > 0 ? "var(--rose)" : "var(--text-muted)", marginTop: "2px" }}>
+              {sim.risk_change_pct < 0 ? `🛡️ ${abs(sim.risk_change_pct)}% Risk Reduction` : sim.risk_change_pct > 0 ? `⚠️ +${sim.risk_change_pct}% Risk Increase` : "Stable Risk Profile"}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Comparison Visualizations */}
+      <div className="grid-2 mb-3">
+        {/* Chart 1: Volume & Staffing Comparison */}
+        <div className="card card-body">
+          <div className="section-title mb-1">Volume & Staff Capacity Comparison</div>
+          <p className="text-muted text-sm mb-2">Side-by-side operational capacity scaling</p>
+          <ResponsiveContainer width="100%" height={260}>
+            <BarChart data={chartData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color, #f1f5f9)" vertical={false} />
+              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+              <YAxis tick={{ fontSize: 11 }} />
+              <Tooltip contentStyle={{ borderRadius: 8, fontSize: "0.82rem" }} />
+              <Legend />
+              <Bar dataKey="Current" fill="#94a3b8" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="Simulated" fill="#2563eb" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Chart 2: TAT & SLA Risk Ratio Comparison */}
+        <div className="card card-body">
+          <div className="section-title mb-1">Turnaround Time & SLA Breach Risk</div>
+          <p className="text-muted text-sm mb-2">Impact on customer delivery velocity and regulatory breach thresholds</p>
+          <ResponsiveContainer width="100%" height={260}>
+            <BarChart data={rateData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color, #f1f5f9)" vertical={false} />
+              <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+              <YAxis tick={{ fontSize: 11 }} />
+              <Tooltip contentStyle={{ borderRadius: 8, fontSize: "0.82rem" }} />
+              <Legend />
+              <Bar dataKey="Current" fill="#94a3b8" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="Simulated" fill={sim.health_color} radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Detailed Side-by-Side Operational Comparison Table */}
+      <div className="card" style={{ overflow: "hidden" }}>
+        <div className="card-header">
+          <h3 style={{ fontSize: "1rem", fontWeight: 700 }}>Detailed Operational Simulation Matrix</h3>
+          <span className="text-muted text-sm">Empirical capacity calculations</span>
+        </div>
+        <div style={{ overflowX: "auto" }}>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Operational Metric</th>
+                <th>Current Baseline</th>
+                <th>Simulated Estimate</th>
+                <th>Net Variance</th>
+                <th>Unit</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(simResult?.comparison_breakdown || []).map((row, idx) => {
+                const diff = (row.simulated - row.current);
+                const isPositive = diff > 0;
+                return (
+                  <tr key={idx}>
+                    <td style={{ fontWeight: 600 }}>{row.metric}</td>
+                    <td style={{ fontFamily: "monospace", fontSize: "0.9rem" }}>{row.current?.toLocaleString()}</td>
+                    <td style={{ fontFamily: "monospace", fontSize: "0.9rem", fontWeight: 700, color: "var(--blue)" }}>
+                      {row.simulated?.toLocaleString()}
+                    </td>
+                    <td style={{ fontWeight: 600, fontSize: "0.85rem", color: diff === 0 ? "var(--text-muted)" : (row.metric.includes("TAT") || row.metric.includes("Risk")) ? (diff > 0 ? "var(--rose)" : "var(--emerald)") : (diff > 0 ? "var(--blue)" : "var(--text-muted)") }}>
+                      {diff === 0 ? "—" : `${isPositive ? "+" : ""}${typeof row.current === "number" && row.current % 1 !== 0 ? diff.toFixed(1) : diff.toLocaleString()}`}
+                    </td>
+                    <td className="text-muted text-sm">{row.unit}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function abs(n) {
+  return Math.abs(n);
+}
+
 /* ────────────────── MAIN ADMIN DASHBOARD ────────────── */
 export default function AdminDashboard({ token, onLogout, darkMode, onToggleTheme }) {
   const [activeTab, setActiveTab] = useState("queue");
@@ -1098,6 +1472,7 @@ export default function AdminDashboard({ token, onLogout, darkMode, onToggleThem
           {activeTab === "departments" && <DepartmentsTab   token={token} />}
           {activeTab === "analytics"   && <AnalyticsTab     token={token} />}
           {activeTab === "leaderboard" && <LeaderboardTab   token={token} />}
+          {activeTab === "simulation"  && <SimulationTab    token={token} />}
           {activeTab === "clusters"    && <ClustersTab      token={token} />}
           {activeTab === "audit"       && <AuditLogsTab     token={token} />}
         </div>

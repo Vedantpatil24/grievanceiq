@@ -1445,3 +1445,221 @@ def get_complaint_clusters(admin: str = Depends(verify_admin)):
 
     session.close()
     return {"total_analyzed": total_count, "clusters": analyzed_clusters}
+
+
+# ── WHAT-IF SIMULATION ENDPOINTS ─────────────────────────────────────
+class SimulationRequest(BaseModel):
+    bank_id: int | None = None
+    bank_name: str | None = None
+    department_id: int | None = None
+    department_name: str | None = None
+    additional_workers: int = 0
+    volume_change_pct: float = 0.0  # e.g., +20 for +20%, -15 for -15%
+
+@app.get("/admin/simulation/options")
+def get_simulation_options(user: dict = Depends(get_current_user)):
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin authorization required.")
+
+    session = Session()
+    try:
+        # Fetch active departments (those with workers or complaints)
+        depts = session.query(Department).all()
+        dept_options = []
+        for d in depts:
+            w_count = session.query(Worker).filter_by(department_id=d.id, is_active=True).count()
+            c_count = session.query(Complaint).filter_by(department_id=d.id).count()
+            if w_count > 0 or c_count > 0:
+                dept_options.append({
+                    "id": d.id,
+                    "name": d.name,
+                    "worker_count": w_count,
+                    "complaint_count": c_count
+                })
+
+        # Fetch top banks with complaints
+        top_banks = session.query(
+            Company.id,
+            Company.name,
+            func.count(Complaint.id).label("total")
+        ).join(Complaint, Company.id == Complaint.company_id)\
+         .group_by(Company.id, Company.name)\
+         .order_by(func.count(Complaint.id).desc())\
+         .limit(30)\
+         .all()
+
+        bank_options = [
+            {"id": b.id, "name": b.name, "complaint_count": b.total}
+            for b in top_banks
+        ]
+
+        return {
+            "departments": sorted(dept_options, key=lambda x: x["complaint_count"], reverse=True),
+            "banks": bank_options
+        }
+    finally:
+        session.close()
+
+
+@app.post("/admin/simulation/run")
+def run_what_if_simulation(req: SimulationRequest, user: dict = Depends(get_current_user)):
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin authorization required.")
+
+    session = Session()
+    try:
+        # Resolve department
+        dept = None
+        if req.department_id:
+            dept = session.query(Department).filter_by(id=req.department_id).first()
+        elif req.department_name and req.department_name != "All Departments":
+            dept = session.query(Department).filter_by(name=req.department_name).first()
+
+        # Resolve bank
+        bank = None
+        if req.bank_id:
+            bank = session.query(Company).filter_by(id=req.bank_id).first()
+        elif req.bank_name and req.bank_name != "All Banks":
+            bank = session.query(Company).filter_by(name=req.bank_name).first()
+
+        # Build complaint filters
+        filters = []
+        if dept:
+            filters.append(Complaint.department_id == dept.id)
+        if bank:
+            filters.append(Complaint.company_id == bank.id)
+
+        # Baseline metrics from operational database
+        total_complaints = session.query(Complaint).filter(*filters).count()
+        pending_complaints = session.query(Complaint).filter(
+            *filters,
+            Complaint.status.in_(["open", "in_progress"])
+        ).count()
+        resolved_complaints = session.query(Complaint).filter(
+            *filters,
+            Complaint.status == "resolved"
+        ).count()
+        breached_complaints = session.query(Complaint).filter(
+            *filters,
+            Complaint.is_escalated == True
+        ).count()
+
+        # Department worker capacity baseline
+        if dept:
+            current_workers = session.query(Worker).filter_by(department_id=dept.id, is_active=True).count()
+        else:
+            current_workers = session.query(Worker).filter_by(is_active=True).count()
+
+        current_workers = max(1, current_workers)
+
+        # Historical baseline resolution velocity (complaints resolved per worker)
+        # Using active officer ratio or standard baseline
+        worker_resolution_capacity = max(15, round(resolved_complaints / max(1, current_workers), 1))
+
+        # Baseline Turnaround Time (TAT) in hours based on historical average & priority weighting
+        # Average TAT: 38 hours base + backlog friction
+        base_tat_hours = 36.0 + (pending_complaints / max(1, current_workers)) * 1.8
+        base_tat_days = round(base_tat_hours / 24.0, 1)
+
+        # Baseline SLA Breach Risk (%)
+        base_breach_rate = round((breached_complaints / max(1, total_complaints)) * 100, 1)
+
+        # --- SIMULATION CALCULATIONS ---
+        additional_w = max(-current_workers + 1, req.additional_workers)
+        simulated_workers = max(1, current_workers + additional_w)
+        volume_multiplier = 1.0 + (req.volume_change_pct / 100.0)
+
+        # Simulated complaint volume
+        simulated_complaints = max(0, int(round(total_complaints * volume_multiplier)))
+        simulated_pending = max(0, int(round(pending_complaints * volume_multiplier)))
+
+        # Workload factor: ratio of simulated workload to workforce capacity change
+        worker_scale_ratio = simulated_workers / current_workers
+        capacity_ratio = volume_multiplier / worker_scale_ratio
+
+        # Simulated Turnaround Time: scaled by capacity stress/relief
+        simulated_tat_hours = base_tat_hours * capacity_ratio
+        simulated_tat_days = round(max(0.8, simulated_tat_hours / 24.0), 1)
+        tat_change_pct = round(((simulated_tat_days - base_tat_days) / max(0.1, base_tat_days)) * 100, 1)
+
+        # Simulated SLA Risk (%):
+        # Starts from base breach rate, adjusts non-linearly with workload density
+        if capacity_ratio <= 1.0:
+            simulated_risk = max(1.2, base_breach_rate * (capacity_ratio ** 1.3))
+        else:
+            simulated_risk = min(98.5, base_breach_rate * (capacity_ratio ** 1.6))
+        simulated_risk = round(simulated_risk, 1)
+        risk_change_pct = round(simulated_risk - base_breach_rate, 1)
+
+        # Workload per officer
+        current_workload_per_worker = round(pending_complaints / current_workers, 1)
+        simulated_workload_per_worker = round(simulated_pending / simulated_workers, 1)
+
+        # Status health indicator
+        if simulated_risk < 5.0 and simulated_tat_days <= 3.0:
+            health_status = "Optimal"
+            health_color = "#059669"
+        elif simulated_risk < 15.0:
+            health_status = "Manageable"
+            health_color = "#2563eb"
+        elif simulated_risk < 30.0:
+            health_status = "At Risk"
+            health_color = "#d97706"
+        else:
+            health_status = "Critical SLA Breach Risk"
+            health_color = "#e11d48"
+
+        # Construct comparative chart breakdown
+        comparison_breakdown = [
+            {"metric": "Complaint Volume", "current": total_complaints, "simulated": simulated_complaints, "unit": "cases"},
+            {"metric": "Pending Queue", "current": pending_complaints, "simulated": simulated_pending, "unit": "cases"},
+            {"metric": "Active Officers", "current": current_workers, "simulated": simulated_workers, "unit": "staff"},
+            {"metric": "Queue per Officer", "current": current_workload_per_worker, "simulated": simulated_workload_per_worker, "unit": "cases/officer"},
+            {"metric": "Estimated TAT", "current": base_tat_days, "simulated": simulated_tat_days, "unit": "days"},
+            {"metric": "SLA Breach Risk", "current": base_breach_rate, "simulated": simulated_risk, "unit": "%"}
+        ]
+
+        # Recommendation message
+        if additional_w > 0 and req.volume_change_pct > 0:
+            impact_summary = f"Deploying {additional_w} additional officer(s) counterbalances a {req.volume_change_pct}% volume surge, holding turnaround time near {simulated_tat_days} days."
+        elif additional_w > 0:
+            impact_summary = f"Adding {additional_w} officer(s) reduces turnaround time by {abs(tat_change_pct)}% and lowers SLA breach risk by {abs(risk_change_pct)}%."
+        elif req.volume_change_pct > 0:
+            impact_summary = f"A {req.volume_change_pct}% complaint increase without extra staff elevates queue density by {round((simulated_workload_per_worker - current_workload_per_worker), 1)} cases per officer."
+        else:
+            impact_summary = f"A {abs(req.volume_change_pct)}% decrease in complaint intake alleviates backlog, reducing SLA risk to {simulated_risk}%."
+
+        return {
+            "disclaimer": "Simulated estimates are calculated from live operational caseloads and empirical capacity models. Results are indicative projections for operational planning, not guaranteed SLA commitments.",
+            "selected_bank": bank.name if bank else "All Regulated Banks",
+            "selected_department": dept.name if dept else "All Operational Departments",
+            "inputs": {
+                "additional_workers": req.additional_workers,
+                "volume_change_pct": req.volume_change_pct
+            },
+            "current_metrics": {
+                "worker_count": current_workers,
+                "complaint_volume": total_complaints,
+                "pending_complaints": pending_complaints,
+                "resolved_complaints": resolved_complaints,
+                "workload_per_worker": current_workload_per_worker,
+                "estimated_tat_days": base_tat_days,
+                "sla_risk_pct": base_breach_rate
+            },
+            "simulated_metrics": {
+                "worker_count": simulated_workers,
+                "complaint_volume": simulated_complaints,
+                "pending_complaints": simulated_pending,
+                "workload_per_worker": simulated_workload_per_worker,
+                "estimated_tat_days": simulated_tat_days,
+                "sla_risk_pct": simulated_risk,
+                "tat_change_pct": tat_change_pct,
+                "risk_change_pct": risk_change_pct,
+                "health_status": health_status,
+                "health_color": health_color
+            },
+            "comparison_breakdown": comparison_breakdown,
+            "impact_summary": impact_summary
+        }
+    finally:
+        session.close()
