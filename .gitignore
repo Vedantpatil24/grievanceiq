@@ -15,4 +15,9 @@ db_url.txt
 
 # Trained model files (optional - these are a few MB, fine to include if you want)
 # Python_codes/classifier.pkl
-# Python_codes/vectorizer.pkldb_url.txt 
+# Python_codes/vectorizer.pkl
+
+# Uploads directory and backup database
+Python_codes/uploads/
+Dataset/*_backup.db
+Dataset/grievanceiq_backup.db
