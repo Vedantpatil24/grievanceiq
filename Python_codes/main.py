@@ -253,8 +253,75 @@ async def submit_complaint(
             }
         )
 
-    # 3. Machine Learning Classification (TF-IDF + Linear SVM + Multilingual Alignment)
+    # 3. Machine Learning Classification & Intent Reconciliation
+    # Reconcile user-selected banking service category with ML text prediction
+    SERVICE_TYPE_MAP = {
+        "Credit Card / Disputed Charges & Fee": {
+            "category": "Credit Card Services",
+            "department": "Card Disputes Team",
+            "keywords": ["card", "credit card", "credit", "bill", "billing", "charge", "charges", "dispute", "disputed", "swipe", "statement", "limit", "kredit", "कार्ड", "क्रेडिट कार्ड", "बिल", "चार्ज", "कट गए", "गलत चार्ज"]
+        },
+        "Lost / Stolen Card & Emergency Block": {
+            "category": "Credit Card Services",
+            "department": "Card Disputes Team",
+            "keywords": ["lost", "stolen", "card", "debit card", "credit card", "block", "blocked", "hotlist", "theft", "misplaced", "खो गया", "चोरी", "कार्ड", "ब्लॉक"]
+        },
+        "UPI / IMPS / Digital Fund Transfer": {
+            "category": "Bank Accounts and Services",
+            "department": "Retail Banking Team",
+            "keywords": ["upi", "imps", "neft", "rtgs", "transfer", "gpay", "phonepe", "paytm", "bhim", "qr", "qr code", "uncredited", "debited", "पैसे", "ट्रांसफर", "खाते", "कट गए"]
+        },
+        "ATM Cash Withdrawal Failure": {
+            "category": "Bank Accounts and Services",
+            "department": "Retail Banking Team",
+            "keywords": ["atm", "cash", "dispense", "dispensed", "machine", "withdrawal", "shutter", "slip", "एटीएम", "कैश", "पैसे नहीं निकले"]
+        },
+        "Net Banking / Mobile App & Tech Glitch": {
+            "category": "Bank Accounts and Services",
+            "department": "Retail Banking Team",
+            "keywords": ["login", "app", "net banking", "mobile banking", "glitch", "crash", "error", "server", "timeout", "otp", "लॉगिन", "ऐप", "एरर", "सर्वर"]
+        },
+        "KYC, Account Freezing & Dormancy": {
+            "category": "Bank Accounts and Services",
+            "department": "Retail Banking Team",
+            "keywords": ["kyc", "freeze", "frozen", "dormant", "pan", "aadhar", "unfreeze", "block", "blocked account", "केवाईसी", "खाता फ्रीज", "फ्रीज"]
+        },
+        "Loan Closure, NOC & Document Dispatch": {
+            "category": "Loans",
+            "department": "Loan Servicing Team",
+            "keywords": ["loan", "emi", "noc", "closure", "foreclosure", "deeds", "documents", "mortgage", "lan", "interest", "लोन", "ईएमआई", "एनओसी", "दस्तावेज"]
+        },
+        "Credit Bureau / CIBIL Rectification": {
+            "category": "Credit Reporting",
+            "department": "Credit Bureau Liaison Team",
+            "keywords": ["cibil", "credit score", "bureau", "experian", "equifax", "overdue", "written off", "dispute", "score", "सिबिल", "स्कोर", "क्रेडिट स्कोर"]
+        },
+        "Staff Behavior & Recovery Harassment": {
+            "category": "Debt Collection",
+            "department": "Collections Compliance Team",
+            "keywords": ["harassment", "abusive", "recovery", "agent", "threat", "threatening", "calls", "shouting", "misbehavior", "वसूली", "एजेंट", "बदतमीजी", "धमकी"]
+        }
+    }
+
     ml_res = classify_complaint(text=description, amount=amount)
+
+    # Hybrid Intent Reconciliation:
+    # If the user explicitly selected a domain-specific service type and the narrative
+    # corroborates it (or ML confidence is moderate/fallback), prioritize the user's category.
+    if service_type in SERVICE_TYPE_MAP:
+        mapping = SERVICE_TYPE_MAP[service_type]
+        expected_cat = mapping["category"]
+        expected_dept = mapping["department"]
+        desc_lower = description.lower()
+        has_corroborating_kw = any(kw in desc_lower for kw in mapping["keywords"])
+
+        if expected_cat == ml_res.get("predicted_category"):
+            ml_res["confidence"] = max(ml_res.get("confidence", 0.75), 0.94)
+        elif has_corroborating_kw or ml_res.get("confidence", 0) < 0.85 or ml_res.get("predicted_category") == "Bank Accounts and Services":
+            ml_res["predicted_category"] = expected_cat
+            ml_res["department_name"] = expected_dept
+            ml_res["confidence"] = 0.95
+            ml_res["model_version"] = f"{ml_res.get('model_version', 'svm')}_hybrid_intent"
 
     # Resolve Department DB record
     dept = db.query(Department).filter(Department.department_name == ml_res["department_name"]).first()

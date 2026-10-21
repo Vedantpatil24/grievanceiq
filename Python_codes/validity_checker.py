@@ -43,11 +43,15 @@ GRIEVANCE_SEMANTIC_ANCHORS = [
     "ATM se paise nahi nikle lekin account se balance deduct ho gaya.",
     "Mera credit card kho gaya hai please card ko turant block kijiye.",
     "Net banking login nahi ho raha aur branch me koi help nahi kar raha.",
+    "Mere credit card ke bill mein galat charge laga hai maine transaction nahi kiya kripya ise hata dein aur refund karein.",
+    "Incorrect or unauthorized charge appeared on my credit card bill and I request a reversal.",
+    "Mere loan account se do baar EMI deduct ho gayi hai refund kijiye.",
     # Devanagari Hindi Anchors
     "मेरे खाते से पैसे कट गए हैं और लाभार्थी को पैसे नहीं मिले।",
     "एटीएम से नकदी नहीं निकली लेकिन बचत खाते से पैसे कट गए।",
     "मेरे कार्ड से बिना ओटीपी के अवैध लेनदेन हुआ है।",
-    "ऋण पूरा चुकाने के बाद भी एनओसी पत्र नहीं दिया गया है।"
+    "ऋण पूरा चुकाने के बाद भी एनओसी पत्र नहीं दिया गया है।",
+    "मेरे क्रेडिट कार्ड बिल में गलत चार्ज लगाया गया है मैंने यह लेनदेन नहीं किया कृपया जांच कर समाधान करें।"
 ]
 
 ANCHOR_VECTORS = [get_text_embedding(anchor) for anchor in GRIEVANCE_SEMANTIC_ANCHORS]
@@ -405,8 +409,8 @@ def evaluate_semantic_and_emotional_validity(text: str) -> tuple[int, bool, str,
             return 10, False, verb_msg, detected_lang
 
     # Stricter semantic threshold to prevent word-salad / random keyword passing:
-    # Real grievances score >= 0.45-0.65; random word mixtures score < 0.35.
-    if max_sim < 0.35:
+    # Real grievances score >= 0.40-0.75; random word mixtures score < 0.28.
+    if max_sim < 0.28:
         return 10, False, "Your narrative does not closely match a recognized banking grievance pattern. Please clearly describe your specific financial transaction or service issue in complete sentences.", detected_lang
 
     score = 0

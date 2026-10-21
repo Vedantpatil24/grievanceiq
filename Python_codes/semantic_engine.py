@@ -25,33 +25,49 @@ except Exception:
 # Banking Sub-Category Prototypes per Category
 SUB_CATEGORY_PROTOTYPES = {
     "Bank Accounts and Services": [
-        ("UPI Payment Failed / Beneficiary Uncredited", ["upi", "gpay", "phonepe", "paytm", "bhim", "imps", "qr code", "uncredited"]),
-        ("ATM Cash Not Dispensed", ["atm", "cash", "dispense", "machine", "atm withdrawal", "shutter"]),
-        ("Unfair Minimum Balance / Service Charges", ["minimum balance", "amb", "aqb", "penalty", "sms alert charge", "hidden charge"]),
-        ("Unauthorized Savings Debit", ["unauthorized debit", "money deducted", "without otp", "unknown deduction", "fraud debit"]),
-        ("Account Frozen / Cheque Clearance Delay", ["account freeze", "blocked account", "cheque bounce", "clearing delay", "kyc pending"])
+        ("UPI Payment Failed / Beneficiary Uncredited", ["upi", "gpay", "phonepe", "paytm", "bhim", "imps", "qr code", "uncredited", "debited not credited", "transfer failed", "पैसे कट गए", "ट्रांसफर"]),
+        ("ATM Cash Not Dispensed", ["atm", "cash", "dispense", "machine", "atm withdrawal", "shutter", "slip", "कैश", "एटीएम", "पैसे नहीं निकले"]),
+        ("Unfair Minimum Balance / Service Charges", ["minimum balance", "amb", "aqb", "penalty", "sms alert charge", "hidden charge", "service charge", "जुर्माना", "पेनाल्टी"]),
+        ("Unauthorized Savings Debit", ["unauthorized debit", "money deducted", "without otp", "unknown deduction", "fraud debit", "अनधिकृत कटौती"]),
+        ("Account Frozen / Cheque Clearance Delay", ["account freeze", "blocked account", "cheque bounce", "clearing delay", "kyc pending", "खाता फ्रीज", "ब्लॉक"])
     ],
     "Credit Card Services": [
-        ("Fraudulent / Unauthorized Card Transaction", ["unauthorized swipe", "card stolen", "international transaction", "cloned", "fraud charge", "otp scam"]),
-        ("Annual / Membership Fee Discrepancy", ["annual fee", "joining fee", "waiver", "renewal fee", "promised free"]),
-        ("Double Billing / Payment Posting Delay", ["charged twice", "double deduction", "bill payment not posted", "late fee wrongful"]),
-        ("Reward Points / Cashback Discrepancy", ["reward points", "cashback", "redemption failed", "miles not credited"])
+        ("Disputed Transaction / Unauthorized Card Charge", [
+            "unauthorized", "fraud", "scam", "galat", "nahi kiya", "nahin kiya",
+            "wrong transaction", "dispute", "disputed", "charge", "charges", "swipe",
+            "unrecognized", "hata dein", "anadhikrit", "cloned", "bill", "billing",
+            "credit card", "card", "बिल", "गलत चार्ज", "चार्ज", "क्रेडिट कार्ड", "अनधिकृत"
+        ]),
+        ("Annual / Membership Fee Discrepancy", [
+            "annual fee", "joining fee", "waiver", "renewal fee", "membership", "promised free",
+            "annual charge", "fee dispute", "वार्षिक शुल्क", "शुल्क", "मेंबरशिप"
+        ]),
+        ("Double Billing / Payment Posting Delay", [
+            "charged twice", "double deduction", "bill payment not posted", "late fee wrongful",
+            "late fee", "do bar", "दो बार", "पेमेंट अपडेट नहीं"
+        ]),
+        ("Reward Points / Cashback Discrepancy", [
+            "reward points", "cashback", "redemption failed", "miles not credited", "reward", "रिवॉर्ड पॉइंट"
+        ]),
+        ("Card Limit / Upgrade / Cancellation Issue", [
+            "limit enhancement", "cancellation", "close credit card", "card upgrade", "limit reduced"
+        ])
     ],
     "Loans": [
-        ("Delay in Property Documents / NOC Dispatch", ["noc", "property deeds", "original documents", "closure letter", "mortgage title"]),
-        ("Duplicate / Extra EMI Deduction", ["double emi", "two emi deducted", "extra emi", "wrong emi amount"]),
-        ("Interest Rate / Tenure Alteration Dispute", ["floating interest", "repo rate reset", "tenure increased", "interest hike without notice"]),
-        ("Unfair Foreclosure / Prepayment Penalty", ["foreclosure charge", "prepayment penalty", "part payment fee"])
+        ("Delay in Property Documents / NOC Dispatch", ["noc", "property deeds", "original documents", "closure letter", "mortgage title", "एनओसी", "दस्तावेज"]),
+        ("Duplicate / Extra EMI Deduction", ["double emi", "two emi deducted", "extra emi", "wrong emi amount", "ईएमआई कट गई", "दो बार"]),
+        ("Interest Rate / Tenure Alteration Dispute", ["floating interest", "repo rate reset", "tenure increased", "interest hike without notice", "ब्याज दर"]),
+        ("Unfair Foreclosure / Prepayment Penalty", ["foreclosure charge", "prepayment penalty", "part payment fee", "फोरक्लोज़र"])
     ],
     "Credit Reporting": [
-        ("Closed Account Showing Written-Off / Overdue", ["written off", "closed loan", "settled showing overdue", "ndc submitted"]),
-        ("Wrong Account / PAN Identity Mix-up", ["not my loan", "wrong account on cibil", "wrong pan", "identity theft"]),
-        ("Score Rectification Turnaround Delay", ["cibil dispute delay", "experian not updated", "30 days exceeded", "score dropped"])
+        ("Closed Account Showing Written-Off / Overdue", ["written off", "closed loan", "settled showing overdue", "ndc submitted", "सिबिल", "ओवरड्यू"]),
+        ("Wrong Account / PAN Identity Mix-up", ["not my loan", "wrong account on cibil", "wrong pan", "identity theft", "गलत खाता"]),
+        ("Score Rectification Turnaround Delay", ["cibil dispute delay", "experian not updated", "30 days exceeded", "score dropped", "क्रेडिट स्कोर"])
     ],
     "Debt Collection": [
-        ("Harassment Outside Permitted Regulatory Hours", ["calling late night", "10 pm", "early morning", "repeated calls"]),
-        ("Abusive Language / Threatening Demeanor", ["abuse", "shouting", "threats", "rude behavior", "intimidation"]),
-        ("Contacting Family / Workplace Harassment", ["called relatives", "visited workplace", "contacted friends", "defamation"])
+        ("Harassment Outside Permitted Regulatory Hours", ["calling late night", "10 pm", "early morning", "repeated calls", "रात में कॉल"]),
+        ("Abusive Language / Threatening Demeanor", ["abuse", "shouting", "threats", "rude behavior", "intimidation", "धमकी", "गाली"]),
+        ("Contacting Family / Workplace Harassment", ["called relatives", "visited workplace", "contacted friends", "defamation", "घर आ गए"])
     ]
 }
 
@@ -80,7 +96,7 @@ def predict_sub_category(category: str, description: str) -> tuple[str, float]:
     """
     prototypes = SUB_CATEGORY_PROTOTYPES.get(category, [])
     if not prototypes:
-        return f"{category} Inquiry", 0.70
+        return f"{category} Inquiry", 0.75
 
     desc_lower = description.lower()
     best_sub = prototypes[0][0]
@@ -89,12 +105,13 @@ def predict_sub_category(category: str, description: str) -> tuple[str, float]:
     for sub_name, keywords in prototypes:
         # Match keywords + semantic proximity
         kw_matches = sum(1 for kw in keywords if kw in desc_lower)
-        score = 0.40 + (kw_matches * 0.20)
-        if score > best_score:
-            best_score = score
-            best_sub = sub_name
+        if kw_matches > 0:
+            score = 0.50 + min(0.48, kw_matches * 0.15)
+            if score > best_score:
+                best_score = score
+                best_sub = sub_name
 
-    confidence = min(round(best_score, 2), 0.98)
+    confidence = min(round(best_score if best_score > 0 else 0.72, 2), 0.98)
     return best_sub, confidence
 
 def find_similar_complaints(db: Session, target_description: str, target_company_id: int, exclude_id: int = None, limit: int = 5) -> list:

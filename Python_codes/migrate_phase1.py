@@ -302,7 +302,7 @@ if kb_count == 0:
             dept_map.get("Card Disputes Team", 1),
             "Unrecognized or Suspicious Credit Card Transaction",
             "Credit Card Services",
-            "fraud, unauthorized, suspicious, card stolen, unknown transaction, otp, scam, hacked",
+            "fraud, unauthorized, suspicious, card stolen, unknown transaction, otp, scam, hacked, galat charge, transaction, dispute, credit card, card, bill, anadhikrit, jaanch, nahi kiya, charge, charges, बिल, गलत चार्ज",
             (
                 "1. Immediately block or freeze your credit card through your official mobile banking app or customer hotline.\n"
                 "2. Review your recent transactions to confirm if this was an unfamiliar international charge or recurring subscription.\n"
