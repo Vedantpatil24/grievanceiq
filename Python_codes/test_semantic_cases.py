@@ -19,38 +19,44 @@ test_cases = [
     ("✅ 2. Genuine Hinglish (emotional)",
      "Mere account se 5000 rupaye kat gaye lekin ATM se cash nahi nikla. Main bahut pareshan hu please jaldi refund karo."),
 
-    ("✅ 3. Genuine Hindi (Devanagari)",
+    ("✅ 3. Genuine Hindi (Devanagari - ATM Dispute)",
      "मेरे खाते से पैसे कट गए हैं लेकिन एटीएम से नकदी नहीं निकली। कृपया मेरी सहायता करें और पैसे वापस करें।"),
 
-    ("✅ 4. Minimal but valid English",
+    ("✅ 4. Genuine Hindi (Devanagari - UPI Transfer)",
+     "मैंने गूगल पे से 25000 रुपये ट्रांसफर किए थे। मेरे बैंक खाते से पैसे कट गए लेकिन दुकानदार को पैसे नहीं मिले।"),
+
+    ("✅ 5. Genuine Hindi (Devanagari - Card Fraud & Block)",
+     "मेरे क्रेडिट कार्ड से 12000 रुपये का अनधिकृत लेनदेन हुआ है जो मैंने नहीं किया। कार्ड तुरंत ब्लॉक करें और पैसे वापस करें।"),
+
+    ("✅ 6. Minimal but valid English",
      "My ATM card was declined but the amount was deducted."),
 
-    ("✅ 5. Valid — uses 'issue' without banking vocab overload",
+    ("✅ 7. Valid — uses 'issue' without banking vocab overload",
      "I have an issue with my account. The money was transferred but not received by the beneficiary."),
 
-    ("✅ 6. Valid — Natural contraction & transfer dispute",
+    ("✅ 8. Valid — Natural contraction & transfer dispute",
      "The Payment is done from my side but the receiver hasn't received the amount yet of INR 45500."),
 
     # ─── SHOULD FAIL ───
-    ("❌ 7. KEYWORD BOMBING — pure banking word list",
+    ("❌ 9. KEYWORD BOMBING — pure banking word list",
      "atm bank cash money debit transfer cibil account card fraud payment loan transaction charges penalty"),
 
-    ("❌ 8. KEYWORD BOMBING — varied but no sentence/verb",
+    ("❌ 10. KEYWORD BOMBING — varied but no sentence/verb",
      "upi imps neft account number branch code ifsc debit credit savings current hdfc sbi icici"),
 
-    ("❌ 9. GIBBERISH — random keyboard mashing",
+    ("❌ 11. GIBBERISH — random keyboard mashing",
      "aslkdjf aweoijfa aweofijasd awoiefjawoeif lkjsdhfkjsdhf kjsdhfkjsd"),
 
-    ("❌ 10. GIBBERISH — consonant clusters",
+    ("❌ 12. GIBBERISH — consonant clusters",
      "bcrftplk mnxqzt vwrblq skdfmwrpqst"),
 
-    ("❌ 11. TOO SHORT",
+    ("❌ 13. TOO SHORT",
      "atm money"),
 
-    ("❌ 12. No grievance verb — just describes a process with no problem",
+    ("❌ 14. No grievance verb — just describes a process with no problem",
      "The ATM machine stands at the bank branch near the highway and many customers use it daily for their transactions."),
 
-    ("❌ 13. KEYWORD BOMBING — Hinglish keywords no sentence",
+    ("❌ 15. KEYWORD BOMBING — Hinglish keywords no sentence",
      "atm paise account bank card transfer imps upi neft cibil loan emi penalty"),
 ]
 
