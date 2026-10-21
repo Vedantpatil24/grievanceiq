@@ -40,15 +40,17 @@ CATEGORY_TO_DEPT = {
     "Credit Reporting": "Credit Bureau Liaison Team",
 }
 
-# High-risk financial severity keywords for priority enhancement
+# High-risk financial severity keywords for priority enhancement (English, Hindi, Hinglish)
 HIGH_SEVERITY_KEYWORDS = [
     "unauthorized", "fraud", "hacked", "stolen", "scam", "phishing",
     "police", "harassment", "abusive", "legal notice", "cyber crime",
-    "extortion", "threat", "fir", "blocked account", "freeze"
+    "extortion", "threat", "fir", "blocked account", "freeze",
+    "धोखा", "धोखाधड़ी", "अनधिकृत", "चोरी", "ब्लॉक", "साइबर", "गैरकानूनी"
 ]
 MEDIUM_SEVERITY_KEYWORDS = [
     "dispute", "delayed", "charged twice", "wrong emi", "cibil dropped",
-    "penalty", "interest", "noc delay", "atm cash not", "failed transfer"
+    "penalty", "interest", "noc delay", "atm cash not", "failed transfer",
+    "विवाद", "देरी", "जुर्माना", "ब्याज", "कट गए", "नहीं मिला", "रिफंड"
 ]
 
 def clean_text(text: str) -> str:
@@ -93,9 +95,9 @@ def classify_complaint(text: str, amount: float = None) -> dict:
 
     # Business Rule Refinement: High value or critical fraud elevates priority
     refined_priority = raw_priority
-    if any(kw in cleaned for kw in HIGH_SEVERITY_KEYWORDS) or (amount and amount >= 50000):
+    if any(kw in processed_text for kw in HIGH_SEVERITY_KEYWORDS) or (amount and amount >= 50000):
         refined_priority = "High"
-    elif any(kw in cleaned for kw in MEDIUM_SEVERITY_KEYWORDS):
+    elif any(kw in processed_text for kw in MEDIUM_SEVERITY_KEYWORDS):
         if refined_priority != "High":
             refined_priority = "Medium"
     elif raw_priority not in ["High", "Medium", "Low"]:
