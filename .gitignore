@@ -3,9 +3,12 @@ Dataset/complaints.csv
 
 # Database file - regenerate from scripts instead
 Dataset/grievanceiq.db
+*.db
+*.db.backup
 
 # Node dependencies - regenerate with npm install
 frontend/node_modules/
+frontend/dist/
 
 # Python cache
 __pycache__/
@@ -13,11 +16,11 @@ __pycache__/
 
 db_url.txt
 
-# Trained model files (optional - these are a few MB, fine to include if you want)
-# Python_codes/classifier.pkl
-# Python_codes/vectorizer.pkl
+# Trained model files
+*.joblib
 
 # Uploads directory and backup database
 Python_codes/uploads/
+uploads/
 Dataset/*_backup.db
 Dataset/grievanceiq_backup.db

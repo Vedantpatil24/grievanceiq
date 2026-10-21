@@ -1,1665 +1,2116 @@
-from fastapi import FastAPI, HTTPException, Depends, Form, File, UploadFile
+"""
+main.py - GrievanceIQ FastAPI Application
+Full-stack BFSI complaint triage, Tier-1 AI GrievanceBot, SLA Engine,
+and Admin/Officer Workspace API.
+"""
+
+import os
+import shutil
+from datetime import datetime, timedelta
+from typing import Optional, List
+
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import OAuth2PasswordBearer
 from fastapi.staticfiles import StaticFiles
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
-from sqlalchemy import create_engine, func, case, or_
-from sqlalchemy.orm import sessionmaker
-from create_db import Complaint, Department, Company, Feedback, User, Worker
+from sqlalchemy.orm import Session
+from sqlalchemy import func, desc
 from jose import JWTError, jwt
 import bcrypt
-import pickle
-import re
-import os
-import uuid
-from datetime import datetime, timedelta
-from sbert_validator import extract_text_from_file, analyze_semantic_validity
-from bot_simulator import start_bot_simulator_thread
 
-app = FastAPI(title="GrievanceIQ API")
+# Internal Modules
+from create_db import (
+    SessionLocal, Company, Department, Category, User, Complaint,
+    KnowledgeBaseArticle, ComplaintMessage, Notification,
+    AssignmentHistory, EscalationHistory, AuditLog, StatusHistory,
+    Prediction, Feedback, Resolution, InvestigationNote, SimilarComplaint
+)
+from validity_checker import check_validity, check_adaptive_validity
+from ml_pipeline import classify_complaint
+from bot_resolver import analyze_with_bot
+from sla_engine import calculate_deadline, evaluate_sla_status
+from smart_assigner import assign_optimal_officer
+from duplicate_detector import check_duplicates_and_anomalies
+from ocr_service import analyze_document_proof
+from audit_service import log_audit_event, create_notification
+from semantic_engine import predict_sub_category, find_similar_complaints
+from bank_intelligence import (
+    calculate_bank_health_score, detect_early_warnings,
+    generate_management_recommendations, run_what_if_simulation
+)
 
-@app.on_event("startup")
-def startup_event():
-    start_bot_simulator_thread()
+# JWT Security Configurations
+SECRET_KEY = "grievanceiq_super_secret_production_key_bfsi_2026"
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
 
+app = FastAPI(
+    title="GrievanceIQ API",
+    description="BFSI Complaint Triage & Tier-1 AI Resolution Platform",
+    version="2.0.0"
+)
+
+# Enable CORS for Vite frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-UPLOAD_DIR = r"G:\Mini_project\Python_codes\uploads"
+# Upload directory setup
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+UPLOAD_DIR = os.path.join(BASE_DIR, "..", "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+
+# DB Dependency
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+# Password helpers
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+    user = db.query(User).filter(User.username == username).first()
+    if user is None:
+        raise credentials_exception
+    return user
+
+
+# =============================================================
+# 1. AUTHENTICATION ENDPOINTS
+# =============================================================
+
+@app.post("/api/auth/login")
+def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    # Support login via email or username
+    login_ident = form_data.username.strip()
+    user = db.query(User).filter(
+        (User.username == login_ident) | (User.email == login_ident)
+    ).first()
+    if not user or not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(status_code=400, detail="Invalid email/username or password")
+    
+    token = create_access_token(data={"sub": user.username, "role": user.role, "user_id": user.user_id})
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": {
+            "user_id": user.user_id,
+            "username": user.username,
+            "email": user.email or user.username,
+            "full_name": user.full_name,
+            "role": user.role.upper(),
+            "department_id": user.department_id
+        }
+    }
+
+class RegisterCustomerIn(BaseModel):
+    email: str
+    password: str
+    full_name: Optional[str] = None
+    role: Optional[str] = "customer"
+
+@app.post("/api/auth/register")
+def register_customer(payload: RegisterCustomerIn, db: Session = Depends(get_db)):
+    clean_email = payload.email.strip().lower()
+    existing = db.query(User).filter((User.email == clean_email) | (User.username == clean_email)).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="An account with this email address already exists.")
+
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(payload.password.encode("utf-8"), salt).decode("utf-8")
+
+    derived_name = payload.full_name.strip() if payload.full_name else clean_email.split('@')[0].replace('.', ' ').title()
+
+    new_user = User(
+        username=clean_email,
+        email=clean_email,
+        hashed_password=hashed,
+        full_name=derived_name,
+        role="customer",
+        is_active=True
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+    token = create_access_token(data={"sub": new_user.username, "role": new_user.role, "user_id": new_user.user_id})
+    return {
+        "message": "Customer registered successfully",
+        "access_token": token,
+        "token_type": "bearer",
+        "user": {
+            "user_id": new_user.user_id,
+            "username": new_user.username,
+            "email": new_user.email,
+            "full_name": new_user.full_name,
+            "role": "CUSTOMER"
+        }
+    }
+
+@app.get("/api/auth/me")
+def get_profile(current_user: User = Depends(get_current_user)):
+    return {
+        "user_id": current_user.user_id,
+        "username": current_user.username,
+        "full_name": current_user.full_name,
+        "role": current_user.role,
+        "department_id": current_user.department_id
+    }
+
+
+# =============================================================
+# 2. METADATA & LOOKUPS
+# =============================================================
+
+@app.get("/api/companies")
+def get_companies(db: Session = Depends(get_db)):
+    return db.query(Company).all()
+
+@app.get("/api/departments")
+def get_departments(db: Session = Depends(get_db)):
+    return db.query(Department).all()
+
+
+# =============================================================
+# 3. COMPLAINT SUBMISSION & TIER-1 BOT ASSESSMENT
+# =============================================================
+
+@app.post("/api/complaints/submit")
+async def submit_complaint(
+    company_id: int = Form(...),
+    service_type: str = Form(...),
+    transaction_date: str = Form(...),
+    description: str = Form(...),
+    amount: Optional[float] = Form(None),
+    reference_id: Optional[str] = Form(None),
+    branch: Optional[str] = Form("Main Branch"),
+    card_last4: Optional[str] = Form(None),
+    account_no: Optional[str] = Form(None),
+    custom_fields: Optional[str] = Form(None),
+    customer_id: Optional[int] = Form(None),
+    proof_file: UploadFile = File(None),
+    db: Session = Depends(get_db)
+):
+    # 1. Save proof file if uploaded
+    saved_file_path = None
+    if proof_file and proof_file.filename:
+        filename = f"{int(datetime.utcnow().timestamp())}_{proof_file.filename}"
+        saved_file_path = os.path.join(UPLOAD_DIR, filename)
+        with open(saved_file_path, "wb") as buffer:
+            shutil.copyfileobj(proof_file.file, buffer)
+
+    # 2. Check Complaint Validity (Adaptive: only requires data relevant to category)
+    validity_res = check_adaptive_validity(
+        service_type=service_type,
+        description=description,
+        incident_date=transaction_date,
+        amount=amount,
+        reference_id=reference_id,
+        has_proof=saved_file_path is not None,
+        card_last4=card_last4,
+        account_no=account_no
+    )
+
+    if not validity_res["is_valid"]:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "COMPLAINT_REJECTED_INCOMPLETE",
+                "score": validity_res["score"],
+                "missing_items": validity_res["missing_items"],
+                "feedback": validity_res["feedback"]
+            }
+        )
+
+    # 3. Machine Learning Classification (TF-IDF + Linear SVM + Multilingual Alignment)
+    ml_res = classify_complaint(text=description, amount=amount)
+
+    # Resolve Department DB record
+    dept = db.query(Department).filter(Department.department_name == ml_res["department_name"]).first()
+    dept_id = dept.department_id if dept else None
+
+    # Resolve Bank Company DB record
+    company_obj = db.query(Company).filter(Company.company_id == company_id).first()
+    bank_name = company_obj.company_name if company_obj else "Bank"
+
+    # 4. Document OCR & 5-Field Cross-Verification against Attached Proof (only if proof provided)
+    ocr_res = {"verified": False, "mismatch_detected": False, "mismatch_details": []}
+    if saved_file_path:
+        ocr_res = analyze_document_proof(
+            file_path=saved_file_path,
+            submitted_bank=bank_name,
+            submitted_date=transaction_date,
+            submitted_amount=amount,
+            submitted_ref_id=reference_id,
+            submitted_branch=branch
+        )
+
+        # If attached document data conflicts with user inputs, reject or flag mismatch
+        if ocr_res.get("mismatch_detected"):
+            mismatch_str = "; ".join(ocr_res["mismatch_details"])
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": "DOCUMENT_DATA_MISMATCH",
+                    "score": validity_res["score"],
+                    "missing_items": ocr_res["mismatch_details"],
+                    "feedback": f"Document Verification Failed: Attached document data does not match entered transaction details. Discrepancies: {mismatch_str}"
+                }
+            )
+
+    # 5. Duplicate & Anomaly Detection
+    dup_res = check_duplicates_and_anomalies(
+        db=db,
+        company_id=company_id,
+        reference_id=reference_id or card_last4 or account_no,
+        amount=amount,
+        description=description
+    )
+
+    # 5.5 SBERT Sub-Category Prediction & Semantic Similarity Scan
+    sub_category_name, sub_conf = predict_sub_category(ml_res["predicted_category"], description)
+    similar_cases = find_similar_complaints(db, description, company_id)
+
+    # 6. Generate Tracking Token (e.g. GRV-2026-00002)
+    last_id = db.query(func.max(Complaint.complaint_id)).scalar() or 0
+    token = f"GRV-2026-{str(last_id + 1).zfill(5)}"
+
+    # 7. Tier-1 GrievanceBot Analysis (Dual Bots & Automated Proof Generation)
+    bot_res = analyze_with_bot(
+        db=db,
+        department_id=dept_id,
+        category_name=ml_res["predicted_category"],
+        description=description,
+        priority=ml_res["priority"],
+        amount=amount,
+        token=token,
+        reference_id=reference_id or card_last4 or account_no,
+        upload_dir=UPLOAD_DIR
+    )
+
+    # 8. Save Complaint in BOT_PROPOSED state
+    now = datetime.utcnow()
+    new_complaint = Complaint(
+        token=token,
+        customer_id=customer_id,
+        company_id=company_id,
+        department_id=dept_id,
+        service_type=service_type,
+        sub_category=sub_category_name,
+        transaction_date=transaction_date,
+        amount=amount,
+        reference_id=reference_id or card_last4 or account_no,
+        branch=branch or "Main Branch",
+        raw_text=description,
+        description=description,
+        proof_file_path=saved_file_path,
+        custom_fields=custom_fields,
+        priority=ml_res["priority"],
+        status="bot_proposed",
+        validity_score=validity_res["score"],
+        validity_status="valid",
+        evidence_status="VERIFIED" if saved_file_path and not ocr_res.get("mismatch_detected") else ("PENDING" if saved_file_path else "NOT_REQUIRED"),
+        resolution_mode="NONE",
+        matched_article_id=bot_res["article_id"],
+        bot_confidence=bot_res["bot_confidence"],
+        escalation_level=0,
+        can_reopen_until=None,
+        created_at=now,
+        updated_at=now
+    )
+    db.add(new_complaint)
+    db.flush()
+
+    # Record similar complaints in database
+    for sim in similar_cases:
+        db.add(SimilarComplaint(
+            complaint_id=new_complaint.complaint_id,
+            matched_complaint_id=sim["complaint_id"],
+            similarity_score=sim["similarity_score"],
+            classification_tag=sim["classification_tag"],
+            detected_at=now
+        ))
+
+    # Log ML Prediction
+    pred_log = Prediction(
+        complaint_id=new_complaint.complaint_id,
+        predicted_category_id=dept.category_id if dept else None,
+        predicted_priority=ml_res["priority"],
+        confidence=ml_res["confidence"],
+        model_version=ml_res["model_version"]
+    )
+    db.add(pred_log)
+
+    # Log Status History
+    status_hist = StatusHistory(
+        complaint_id=new_complaint.complaint_id,
+        old_status=None,
+        new_status="bot_proposed",
+        changed_by="system",
+        changed_at=now,
+        comment=f"Complaint validated (Score {validity_res['score']}/100) and analyzed by GrievanceBot."
+    )
+    db.add(status_hist)
+
+    # Log Audit Event
+    log_audit_event(
+        db=db,
+        actor_type="customer",
+        action="SUBMIT_COMPLAINT",
+        entity_type="complaint",
+        entity_id=token,
+        details=f"Submitted with validity {validity_res['score']}. Matched article {bot_res['title']}."
+    )
+
+    # Create Initial Notification
+    create_notification(
+        db=db,
+        complaint_id=new_complaint.complaint_id,
+        recipient_type="customer",
+        notification_type="BOT_GUIDANCE_READY",
+        title="Grievance Received & Guidance Ready",
+        body=f"Your complaint {token} was received. GrievanceBot has analyzed your issue and prepared immediate guidance."
+    )
+
+    db.commit()
+
+    return {
+        "status": "success",
+        "token": token,
+        "validity_score": validity_res["score"],
+        "department": ml_res["department_name"],
+        "category": ml_res["predicted_category"],
+        "sub_category": sub_category_name,
+        "sub_category_confidence": sub_conf,
+        "priority": ml_res["priority"],
+        "ml_confidence": ml_res["confidence"],
+        "bot_assessment": bot_res,
+        "ocr_verification": ocr_res,
+        "duplicate_check": dup_res,
+        "similar_complaints": similar_cases
+    }
+
+
+# =============================================================
+# 4. CUSTOMER DECISION (RESOLVE BY BOT vs ESCALATE TO OFFICER)
+# =============================================================
+
+class CustomerDecisionIn(BaseModel):
+    decision: str  # "SOLVED" or "ESCALATE"
+    feedback_notes: Optional[str] = None
+
+@app.post("/api/complaints/{token}/customer-decision")
+def handle_customer_decision(token: str, payload: CustomerDecisionIn, db: Session = Depends(get_db)):
+    complaint = db.query(Complaint).filter(Complaint.token == token).first()
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
+    now = datetime.utcnow()
+
+    # Scenario A: Customer accepts Bot Guidance
+    if payload.decision.upper() == "SOLVED":
+        old_status = complaint.status
+        complaint.status = "resolved"
+        complaint.resolution_mode = "BOT"
+        complaint.resolved_at = now
+        complaint.can_reopen_until = now + timedelta(days=7)
+        complaint.resolution_notes = (
+            "Customer verified and accepted Tier-1 GrievanceBot guidance as complete resolution. "
+            + (f"Note: {payload.feedback_notes}" if payload.feedback_notes else "")
+        )
+        complaint.updated_at = now
+
+        db.add(StatusHistory(
+            complaint_id=complaint.complaint_id,
+            old_status=old_status,
+            new_status="resolved",
+            changed_by="customer",
+            changed_at=now,
+            comment="Resolved via Tier-1 GrievanceBot acceptance."
+        ))
+
+        log_audit_event(
+            db=db,
+            actor_type="customer",
+            action="RESOLVE_VIA_BOT",
+            entity_type="complaint",
+            entity_id=token,
+            details="Customer clicked 'This solved my issue'."
+        )
+
+        create_notification(
+            db=db,
+            complaint_id=complaint.complaint_id,
+            recipient_type="customer",
+            notification_type="STATUS_UPDATE",
+            title="Complaint Resolved by AI Bot",
+            body=f"Your complaint {token} has been marked as resolved. You can provide feedback or reopen within 7 days."
+        )
+
+        db.commit()
+        return {
+            "message": "Complaint successfully resolved via GrievanceBot guidance.",
+            "status": "resolved",
+            "resolution_mode": "BOT"
+        }
+
+    # Scenario B: Customer requests Human Officer Escalation
+    elif payload.decision.upper() == "ESCALATE":
+        old_status = complaint.status
+        complaint.status = "escalated"
+        complaint.resolution_mode = "HUMAN"
+        complaint.escalated_at = now
+        complaint.escalation_level = 1
+        complaint.escalation_reason = payload.feedback_notes or "Customer requested human officer assistance."
+        complaint.sla_deadline = calculate_deadline(now, complaint.priority)
+        complaint.updated_at = now
+
+        # Smart Assignment to Department Officer
+        assigned_officer = assign_optimal_officer(
+            db=db,
+            complaint=complaint,
+            reason="Automated Smart Assignment upon Tier-1 Escalation"
+        )
+
+        # Log Escalation History
+        db.add(EscalationHistory(
+            complaint_id=complaint.complaint_id,
+            from_level=0,
+            to_level=1,
+            reason=complaint.escalation_reason,
+            triggered_by="customer",
+            previous_officer_id=None,
+            new_officer_id=assigned_officer.user_id if assigned_officer else None,
+            created_at=now
+        ))
+
+        db.add(StatusHistory(
+            complaint_id=complaint.complaint_id,
+            old_status=old_status,
+            new_status="escalated",
+            changed_by="customer",
+            changed_at=now,
+            comment=f"Escalated to Tier-2 Officer. Assigned to {assigned_officer.full_name if assigned_officer else 'Queue'}."
+        ))
+
+        log_audit_event(
+            db=db,
+            actor_type="customer",
+            action="ESCALATE_TO_OFFICER",
+            entity_type="complaint",
+            entity_id=token,
+            details=f"Escalated to human handling. SLA deadline: {complaint.sla_deadline.isoformat()}."
+        )
+
+        # Notify Customer
+        create_notification(
+            db=db,
+            complaint_id=complaint.complaint_id,
+            recipient_type="customer",
+            notification_type="ESCALATION_CONFIRMED",
+            title="Escalated to Banking Officer",
+            body=f"Your complaint {token} has been assigned to an officer. Resolution SLA deadline: {complaint.sla_deadline.strftime('%Y-%m-%d %H:%M UTC')}."
+        )
+
+        # Notify Assigned Officer
+        if assigned_officer:
+            create_notification(
+                db=db,
+                complaint_id=complaint.complaint_id,
+                recipient_type="staff",
+                recipient_id=assigned_officer.user_id,
+                notification_type="NEW_TICKET_ASSIGNED",
+                title=f"New Escalated Grievance: {token}",
+                body=f"Priority: {complaint.priority}. Customer requested human assistance."
+            )
+
+        db.commit()
+        return {
+            "message": "Complaint escalated to Banking Officer.",
+            "status": "escalated",
+            "resolution_mode": "HUMAN",
+            "assigned_officer": assigned_officer.full_name if assigned_officer else "Unassigned",
+            "sla_deadline": complaint.sla_deadline.isoformat()
+        }
+
+    else:
+        raise HTTPException(status_code=400, detail="Invalid decision. Must be 'SOLVED' or 'ESCALATE'.")
+
+
+# =============================================================
+# 5. COMPLAINT TRACKING & DETAILS
+# =============================================================
+
+@app.get("/api/complaints/{token}/track")
+def track_complaint(token: str, db: Session = Depends(get_db)):
+    complaint = db.query(Complaint).filter(Complaint.token == token).first()
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
+    # Evaluate live SLA
+    sla_info = evaluate_sla_status(complaint.sla_deadline, complaint.status)
+
+    # Officer info
+    officer_name = complaint.assigned_officer.full_name if complaint.assigned_officer else "Unassigned"
+    officer_dept = complaint.department.department_name if complaint.department else "General"
+    bank_name = complaint.company.company_name if complaint.company else "Unknown Bank"
+
+    # Timeline events
+    timeline = []
+    # 1. Created
+    timeline.append({
+        "event": "Complaint Submitted & Validated",
+        "timestamp": complaint.created_at.isoformat() if complaint.created_at else complaint.submitted_at,
+        "detail": f"Validity Score: {complaint.validity_score}/100. Proof verified.",
+        "icon": "document"
+    })
+    
+    # 2. Status History
+    for hist in complaint.status_history:
+        timeline.append({
+            "event": f"Status: {hist.new_status.replace('_', ' ').title()}",
+            "timestamp": hist.changed_at.isoformat(),
+            "detail": hist.comment,
+            "icon": "check" if hist.new_status == "resolved" else "arrow"
+        })
+
+    # Can reopen?
+    can_reopen = False
+    if complaint.status == "resolved" and complaint.reopen_count < 2:
+        if complaint.can_reopen_until and datetime.utcnow() <= complaint.can_reopen_until:
+            can_reopen = True
+
+    # Latest Resolution details if any
+    latest_res = db.query(Resolution).filter(
+        Resolution.complaint_id == complaint.complaint_id
+    ).order_by(Resolution.resolution_id.desc()).first()
+
+    resolution_info = None
+    if latest_res:
+        resolution_info = {
+            "resolution_id": latest_res.resolution_id,
+            "worker_name": latest_res.worker.full_name if latest_res.worker else "Officer",
+            "resolution_details": latest_res.resolution_details,
+            "resolution_type": latest_res.resolution_type,
+            "transaction_reference": latest_res.transaction_reference,
+            "resolved_amount": latest_res.resolved_amount,
+            "resolution_proof_url": f"/uploads/{os.path.basename(latest_res.resolution_proof_path)}" if latest_res.resolution_proof_path else None,
+            "resolution_date": latest_res.resolution_date.isoformat(),
+            "customer_confirmation_status": latest_res.customer_confirmation_status
+        }
+
+    return {
+        "token": complaint.token,
+        "company_name": bank_name,
+        "department_name": officer_dept,
+        "service_type": complaint.service_type,
+        "sub_category": complaint.sub_category,
+        "transaction_date": complaint.transaction_date,
+        "amount": complaint.amount,
+        "reference_id": complaint.reference_id,
+        "branch": complaint.branch,
+        "description": complaint.description,
+        "priority": complaint.priority,
+        "status": complaint.status,
+        "validity_score": complaint.validity_score,
+        "evidence_status": complaint.evidence_status or "PENDING",
+        "evidence_rejection_reason": complaint.evidence_rejection_reason,
+        "resolution_mode": complaint.resolution_mode,
+        "assigned_officer": officer_name,
+        "escalation_level": complaint.escalation_level,
+        "sla": sla_info,
+        "resolved_at": complaint.resolved_at.isoformat() if complaint.resolved_at else None,
+        "resolution_notes": complaint.resolution_notes,
+        "latest_resolution": resolution_info,
+        "can_reopen": can_reopen,
+        "reopen_count": complaint.reopen_count,
+        "timeline": timeline,
+        "has_proof": bool(complaint.proof_file_path),
+        "proof_file": os.path.basename(complaint.proof_file_path) if complaint.proof_file_path else None
+    }
+
+
+# =============================================================
+# 5.5 CUSTOMER COMPLAINT HISTORY
+# =============================================================
+
+@app.get("/api/customer/complaints")
+def list_customer_complaints(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Returns history of grievances filed by or linked to the authenticated customer.
+    """
+    query = db.query(Complaint).filter(Complaint.customer_id == current_user.user_id)
+    complaints = query.order_by(Complaint.complaint_id.desc()).all()
+
+    result = []
+    for c in complaints:
+        sla_info = evaluate_sla_status(c.sla_deadline, c.status)
+        # Get latest resolution record for confirm/reopen workflow
+        latest_res = db.query(Resolution).filter(
+            Resolution.complaint_id == c.complaint_id
+        ).order_by(Resolution.resolution_id.desc()).first()
+
+        result.append({
+            "complaint_id": c.complaint_id,
+            "token": c.token,
+            "company_name": c.company.company_name if c.company else "Bank",
+            "department_name": c.department.department_name if c.department else "Customer Care",
+            "service_type": c.service_type,
+            "sub_category": c.sub_category or "General",
+            "description": c.description,
+            "transaction_date": c.transaction_date,
+            "amount": c.amount,
+            "reference_id": c.reference_id,
+            "branch": c.branch,
+            "priority": c.priority,
+            "status": c.status,
+            "validity_score": c.validity_score,
+            "resolution_mode": c.resolution_mode,
+            "resolution_notes": c.resolution_notes,
+            "evidence_status": c.evidence_status or "PENDING",
+            "reopen_count": c.reopen_count or 0,
+            "can_reopen_until": c.can_reopen_until.isoformat() if c.can_reopen_until else None,
+            "sla": sla_info,
+            "resolved_at": c.resolved_at.isoformat() if c.resolved_at else None,
+            "created_at": c.created_at.isoformat() if c.created_at else c.submitted_at,
+            "latest_resolution": {
+                "resolution_id": latest_res.resolution_id,
+                "resolution_type": latest_res.resolution_type,
+                "resolution_details": latest_res.resolution_details,
+                "resolved_amount": latest_res.resolved_amount,
+                "transaction_reference": latest_res.transaction_reference,
+                "resolution_date": latest_res.resolution_date.isoformat() if latest_res.resolution_date else None,
+                "customer_confirmation_status": latest_res.customer_confirmation_status,
+                "resolution_proof_path": latest_res.resolution_proof_path,
+            } if latest_res else None,
+        })
+    return result
+
+
+# =============================================================
+# 6. REOPEN COMPLAINT ENDPOINT
+# =============================================================
+
+class ReopenIn(BaseModel):
+    reopen_reason: str
+
+@app.post("/api/complaints/{token}/reopen")
+def reopen_complaint(token: str, payload: ReopenIn, db: Session = Depends(get_db)):
+    complaint = db.query(Complaint).filter(Complaint.token == token).first()
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
+    if complaint.status != "resolved":
+        raise HTTPException(status_code=400, detail="Only resolved complaints can be reopened.")
+
+    now = datetime.utcnow()
+    if complaint.can_reopen_until and now > complaint.can_reopen_until:
+        raise HTTPException(status_code=400, detail="Reopen window expired (must be within 7 days of resolution).")
+
+    if complaint.reopen_count >= 2:
+        raise HTTPException(status_code=400, detail="Maximum reopen limit (2) reached for this grievance.")
+
+    # Reopen and escalate to Senior Nodal Officer (Level 2)
+    old_status = complaint.status
+    complaint.status = "reopened"
+    complaint.reopen_count += 1
+    complaint.escalation_level = 2
+    complaint.priority = "High"
+    complaint.escalated_at = now
+    complaint.sla_deadline = now + timedelta(hours=24)  # Urgent 24h SLA
+    complaint.resolution_notes = None
+    complaint.resolved_at = None
+    complaint.updated_at = now
+
+    db.add(StatusHistory(
+        complaint_id=complaint.complaint_id,
+        old_status=old_status,
+        new_status="reopened",
+        changed_by="customer",
+        changed_at=now,
+        comment=f"Customer reopened case: {payload.reopen_reason}. Escalated to Level 2 (Senior Nodal)."
+    ))
+
+    db.add(EscalationHistory(
+        complaint_id=complaint.complaint_id,
+        from_level=1,
+        to_level=2,
+        reason=payload.reopen_reason,
+        triggered_by="customer",
+        previous_officer_id=complaint.current_assigned_officer_id,
+        new_officer_id=complaint.current_assigned_officer_id,
+        created_at=now
+    ))
+
+    log_audit_event(
+        db=db,
+        actor_type="customer",
+        action="REOPEN_COMPLAINT",
+        entity_type="complaint",
+        entity_id=token,
+        details=f"Reopened with reason: {payload.reopen_reason}."
+    )
+
+    db.commit()
+    return {"message": "Complaint reopened and escalated to Senior Nodal Officer.", "status": "reopened"}
+
+
+# =============================================================
+# 7. CUSTOMER FEEDBACK
+# =============================================================
+
+class FeedbackIn(BaseModel):
+    rating: int
+    comments: Optional[str] = None
+
+@app.post("/api/complaints/{token}/feedback")
+def submit_feedback(token: str, payload: FeedbackIn, db: Session = Depends(get_db)):
+    complaint = db.query(Complaint).filter(Complaint.token == token).first()
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
+    existing_fb = db.query(Feedback).filter(Feedback.complaint_id == complaint.complaint_id).first()
+    if existing_fb:
+        existing_fb.rating = payload.rating
+        existing_fb.comments = payload.comments
+        existing_fb.submitted_at = datetime.utcnow()
+    else:
+        new_fb = Feedback(
+            complaint_id=complaint.complaint_id,
+            rating=payload.rating,
+            comments=payload.comments,
+            submitted_at=datetime.utcnow()
+        )
+        db.add(new_fb)
+
+    db.commit()
+    return {"message": "Thank you for your feedback!"}
+
+
+# =============================================================
+# 8. MESSAGING (CUSTOMER <-> OFFICER)
+# =============================================================
+
+class MessageIn(BaseModel):
+    message_text: str
+    sender_type: str = "customer"  # "customer" or "officer"
+    sender_name: Optional[str] = "Customer"
+
+@app.get("/api/complaints/{token}/messages")
+def get_messages(token: str, db: Session = Depends(get_db)):
+    complaint = db.query(Complaint).filter(Complaint.token == token).first()
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+    
+    msgs = db.query(ComplaintMessage).filter(
+        ComplaintMessage.complaint_id == complaint.complaint_id
+    ).order_by(ComplaintMessage.created_at.asc()).all()
+
+    return [{
+        "message_id": m.message_id,
+        "sender_type": m.sender_type,
+        "sender_name": m.sender_name,
+        "message_text": m.message_text,
+        "created_at": m.created_at.isoformat()
+    } for m in msgs]
+
+@app.post("/api/complaints/{token}/messages")
+def send_message(token: str, payload: MessageIn, db: Session = Depends(get_db)):
+    complaint = db.query(Complaint).filter(Complaint.token == token).first()
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
+    new_msg = ComplaintMessage(
+        complaint_id=complaint.complaint_id,
+        sender_type=payload.sender_type,
+        sender_name=payload.sender_name or ("Customer" if payload.sender_type == "customer" else "Officer"),
+        message_text=payload.message_text,
+        created_at=datetime.utcnow()
+    )
+    db.add(new_msg)
+
+    # In-app notification
+    target_role = "staff" if payload.sender_type == "customer" else "customer"
+    create_notification(
+        db=db,
+        complaint_id=complaint.complaint_id,
+        recipient_type=target_role,
+        notification_type="NEW_MESSAGE",
+        title=f"New Message on {token}",
+        body=f"From {new_msg.sender_name}: {payload.message_text[:80]}..."
+    )
+
+    db.commit()
+    return {"message": "Message sent successfully.", "message_id": new_msg.message_id}
+
+
+# =============================================================
+# 9. NOTIFICATIONS
+# =============================================================
+
+@app.get("/api/notifications")
+def get_notifications(
+    recipient_type: str = Query("customer"),
+    token: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    query = db.query(Notification).filter(Notification.recipient_type == recipient_type)
+    if token:
+        complaint = db.query(Complaint).filter(Complaint.token == token).first()
+        if complaint:
+            query = query.filter(Notification.complaint_id == complaint.complaint_id)
+    notifs = query.order_by(Notification.created_at.desc()).limit(20).all()
+    return [{
+        "notification_id": n.notification_id,
+        "title": n.title,
+        "body": n.body,
+        "is_read": n.is_read,
+        "created_at": n.created_at.isoformat()
+    } for n in notifs]
+
+
+# =============================================================
+# 10. ADMIN & OFFICER WORKSPACE
+# =============================================================
+
+@app.get("/api/admin/complaints")
+def list_admin_complaints(
+    department_id: Optional[int] = None,
+    company_id: Optional[int] = None,
+    priority: Optional[str] = None,
+    status_filter: Optional[str] = None,
+    resolution_mode: Optional[str] = None,
+    search: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    query = db.query(Complaint)
+    
+    if department_id:
+        query = query.filter(Complaint.department_id == department_id)
+    if company_id:
+        query = query.filter(Complaint.company_id == company_id)
+    if priority:
+        query = query.filter(Complaint.priority == priority)
+    if status_filter:
+        query = query.filter(Complaint.status == status_filter)
+    if resolution_mode:
+        query = query.filter(Complaint.resolution_mode == resolution_mode)
+    if search:
+        search_fmt = f"%{search}%"
+        query = query.filter(
+            (Complaint.token.ilike(search_fmt)) |
+            (Complaint.reference_id.ilike(search_fmt)) |
+            (Complaint.description.ilike(search_fmt))
+        )
+
+    complaints = query.order_by(Complaint.complaint_id.desc()).all()
+
+    result = []
+    for c in complaints:
+        sla_info = evaluate_sla_status(c.sla_deadline, c.status)
+        result.append({
+            "complaint_id": c.complaint_id,
+            "token": c.token,
+            "company_name": c.company.company_name if c.company else "Unknown",
+            "department_name": c.department.department_name if c.department else "Unassigned",
+            "service_type": c.service_type,
+            "sub_category": c.sub_category or "General Grievance",
+            "description": c.description,
+            "amount": c.amount,
+            "reference_id": c.reference_id,
+            "priority": c.priority,
+            "status": c.status,
+            "validity_score": c.validity_score,
+            "resolution_mode": c.resolution_mode,
+            "evidence_status": c.evidence_status or "PENDING",
+            "evidence_rejection_reason": c.evidence_rejection_reason,
+            "proof_file_path": c.proof_file_path,
+            "assigned_officer": c.assigned_officer.full_name if c.assigned_officer else "Unassigned",
+            "sla": sla_info,
+            "created_at": c.created_at.isoformat() if c.created_at else c.submitted_at
+        })
+
+    return result
+
+class UpdateStatusIn(BaseModel):
+    status: str
+    resolution_notes: Optional[str] = None
+
+@app.put("/api/admin/complaints/{token}/status")
+def update_complaint_status(
+    token: str,
+    payload: UpdateStatusIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    complaint = db.query(Complaint).filter(Complaint.token == token).first()
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
+    old_status = complaint.status
+    complaint.status = payload.status
+    complaint.updated_at = datetime.utcnow()
+    
+    if payload.status == "resolved":
+        complaint.resolved_at = datetime.utcnow()
+        complaint.resolution_notes = payload.resolution_notes or "Resolved by banking officer."
+        complaint.can_reopen_until = datetime.utcnow() + timedelta(days=7)
+
+    db.add(StatusHistory(
+        complaint_id=complaint.complaint_id,
+        old_status=old_status,
+        new_status=payload.status,
+        changed_by=current_user.username,
+        changed_at=datetime.utcnow(),
+        comment=payload.resolution_notes or f"Status changed to {payload.status}."
+    ))
+
+    log_audit_event(
+        db=db,
+        actor_type="officer",
+        action="UPDATE_STATUS",
+        entity_type="complaint",
+        entity_id=token,
+        details=f"Changed from {old_status} to {payload.status}.",
+        actor_id=current_user.user_id
+    )
+
+    create_notification(
+        db=db,
+        complaint_id=complaint.complaint_id,
+        recipient_type="customer",
+        notification_type="STATUS_UPDATE",
+        title=f"Grievance {token} Updated",
+        body=f"Your grievance status has been updated to: {payload.status.replace('_', ' ').title()}."
+    )
+
+    db.commit()
+    return {"message": "Status updated successfully.", "status": complaint.status}
+
+# Official Redressal Memorandum Generator tailored dynamically to the grievance type
+@app.post("/api/admin/complaints/{token}/draft-copilot-resolution")
+def draft_copilot_resolution(
+    token: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    complaint = db.query(Complaint).filter(Complaint.token == token).first()
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
+    bank = complaint.company.company_name if complaint.company else "the Bank"
+    dept = complaint.department.department_name if complaint.department else "Customer Grievance Redressal Cell"
+    service = complaint.service_type or "General Banking Grievance"
+    ref = complaint.reference_id or "REF-NOT-PROVIDED"
+    amt = f"INR {complaint.amount:,.2f}" if complaint.amount else "Non-Monetary Service Claim"
+    dt = complaint.transaction_date or datetime.utcnow().strftime('%d-%b-%Y')
+    now_date = datetime.utcnow().strftime('%d-%b-%Y')
+
+    # Differentiated standard operating procedure and reasoning tailored to each specific complaint category
+    if "Lost" in service or "Card" in service and "Block" in service:
+        procedure_text = (
+            f"1. Emergency Hotlisting: Card ending in digits [{ref}] was immediately blocked and placed on the central card security blacklist.\n"
+            f"2. Liability Capping: Under RBI Circular on Customer Protection, zero-liability status has been applied effective {dt}.\n"
+            f"3. Reissuance Protocol: A replacement chip and PIN enabled card has been processed and dispatched via courier tracking dispatch."
+        )
+        remedy_title = "EMERGENCY CARD BLOCKING & REISSUANCE ADVICE"
+    elif "UPI" in service or "IMPS" in service or "Transfer" in service:
+        procedure_text = (
+            f"1. Switch Reconciliation: Inter-bank NPCI switch logs for UTR [{ref}] dated {dt} have been audited.\n"
+            f"2. Settlement Audit: Beneficiary bank switch responded with a timeout code (Deemed Debit - Return Required).\n"
+            f"3. Fund Remediation: Full disputed sum of {amt} has been refunded to your source account along with statutory compensation per RBI circular on turnaround time."
+        )
+        remedy_title = "ELECTRONIC FUND TRANSFER DISPUTE RECONCILIATION"
+    elif "ATM" in service or "Cash" in service:
+        procedure_text = (
+            f"1. ATM Switch & Electronic Journal (EJ) Audit: ATM Switch log for reference [{ref}] on {dt} was extracted.\n"
+            f"2. Cash Dispenser Sensor Verification: Dispenser sensor confirmed cash jam / non-dispense of currency notes.\n"
+            f"3. Credit Adjustment: An un-dispensed cash adjustment entry of {amt} has been credited to your savings account under auto-reversal code AR-ATM-88."
+        )
+        remedy_title = "ATM DISPENSE DISCREPANCY SETTLEMENT"
+    elif "KYC" in service or "Freezing" in service or "Dormancy" in service:
+        procedure_text = (
+            f"1. Compliance Record Verification: KYC documents submitted for Account [{ref}] were verified through C-KYC repository.\n"
+            f"2. System Status Restoration: Operational hold and debit freeze flags have been revoked from core banking.\n"
+            f"3. Service Activation: Full net banking, UPI, and debit card transactions are now operational with immediate effect."
+        )
+        remedy_title = "ACCOUNT OPERATIONAL RESTORATION MEMORANDUM"
+    elif "Loan" in service or "NOC" in service or "EMI" in service:
+        procedure_text = (
+            f"1. Loan Account Reconciliation: Final closure clearance for Loan Account [{ref}] was audited against credit ledger.\n"
+            f"2. Lien Release & Document Dispatch: No Objection Certificate (NOC) and original property title deeds released from vault security.\n"
+            f"3. Bureau Notification: Nil outstanding update triggered to CIBIL / Experian."
+        )
+        remedy_title = "LOAN FORECLOSURE & NOC CLEARANCE MEMORANDUM"
+    elif "Credit Bureau" in service or "CIBIL" in service:
+        procedure_text = (
+            f"1. Commercial Bureau Audit: Erroneous overdue reported against Control No [{ref}] was investigated.\n"
+            f"2. Member Rectification: An expedited correction request has been submitted to TransUnion CIBIL and Experian.\n"
+            f"3. Score Restoration: Revised trade-line status updated to 'Closed - Regular' with 0 Days Past Due (DPD)."
+        )
+        remedy_title = "CREDIT BUREAU RECTIFICATION ADVICE"
+    elif "Staff" in service or "Harassment" in service or "Recovery" in service:
+        procedure_text = (
+            f"1. Internal Vigilance Inquiry: Incident regarding agency/staff conduct on reference [{ref}] was reviewed by the Ombudsman Desk.\n"
+            f"2. Fair Practice Code Enforcement: Strict warning issued to the concerned recovery agency in accordance with RBI Fair Lending Practices.\n"
+            f"3. DND Tagging: Account marked with enhanced customer protection flag to prevent unverified communications."
+        )
+        remedy_title = "CUSTOMER CONDUCT INQUIRY & REMEDIATION MEMORANDUM"
+    else:
+        procedure_text = (
+            f"1. Case Investigation: Grievance reference [{ref}] investigated under standard operating procedures for {service}.\n"
+            f"2. Remedial Action: Operational verification concluded and necessary banking ledger adjustments have been initiated.\n"
+            f"3. Service Assurance: Measures implemented to prevent operational recurrence."
+        )
+        remedy_title = "OFFICIAL GRIEVANCE REDRESSAL MEMORANDUM"
+
+    draft = (
+        f"======================================================================\n"
+        f"           {remedy_title}\n"
+        f"                  {bank.upper()} - {dept.upper()}\n"
+        f"======================================================================\n"
+        f"Tracking Token  : {complaint.token}\n"
+        f"Reference No    : {ref}\n"
+        f"Incident Date   : {dt}\n"
+        f"Claim Value     : {amt}\n"
+        f"Dispatch Date   : {now_date}\n\n"
+        f"Dear Customer,\n\n"
+        f"With reference to your formal grievance regarding '{service}' lodged under tracking token {complaint.token}, "
+        f"the competent authority has completed the investigation. The formal determination and remedial action taken are detailed below:\n\n"
+        f"SUMMARY OF FINDINGS & PROCEDURAL ACTION TAKEN:\n"
+        f"----------------------------------------------------------------------\n"
+        f"{procedure_text}\n"
+        f"----------------------------------------------------------------------\n\n"
+        f"REGULATORY RIGHTS & NEXT STEPS:\n"
+        f"If the above resolution satisfactorily addresses your grievance, you may accept and close this record. "
+        f"Should you require further clarification, you may respond directly via your tracking console within 7 days.\n\n"
+        f"Sincerely,\n"
+        f"{current_user.full_name}\n"
+        f"Senior Grievance Redressal Officer\n"
+        f"{dept}, {bank}"
+    )
+
+    return {"draft_resolution": draft}
+
+
+# =============================================================
+# 11. KNOWLEDGE BASE CRUD
+# =============================================================
+
+@app.get("/api/kb")
+def list_kb_articles(db: Session = Depends(get_db)):
+    articles = db.query(KnowledgeBaseArticle).order_by(KnowledgeBaseArticle.article_id.desc()).all()
+    return [{
+        "article_id": a.article_id,
+        "title": a.title,
+        "category": a.category,
+        "keywords": a.keywords,
+        "guidance_steps": a.guidance_steps,
+        "regulatory_reference": a.regulatory_reference,
+        "can_self_resolve": a.can_self_resolve,
+        "is_active": a.is_active
+    } for a in articles]
+
+class KBArticleIn(BaseModel):
+    title: str
+    category: str
+    keywords: str
+    guidance_steps: str
+    regulatory_reference: Optional[str] = None
+    can_self_resolve: bool = True
+    department_id: Optional[int] = None
+
+@app.post("/api/kb")
+def create_kb_article(
+    payload: KBArticleIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    art = KnowledgeBaseArticle(
+        title=payload.title,
+        category=payload.category,
+        keywords=payload.keywords,
+        guidance_steps=payload.guidance_steps,
+        regulatory_reference=payload.regulatory_reference,
+        can_self_resolve=payload.can_self_resolve,
+        department_id=payload.department_id,
+        is_active=True,
+        created_at=datetime.utcnow()
+    )
+    db.add(art)
+    db.commit()
+    return {"message": "Knowledge base article created.", "article_id": art.article_id}
+
+@app.get("/api/admin/audit-logs")
+def get_admin_audit_logs(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    logs = db.query(AuditLog).order_by(AuditLog.timestamp.desc()).limit(100).all()
+    return [{
+        "log_id": l.log_id,
+        "timestamp": l.timestamp.isoformat(),
+        "actor_type": l.actor_type,
+        "actor_id": l.actor_id,
+        "action": l.action,
+        "entity_type": l.entity_type,
+        "entity_id": l.entity_id,
+        "details": l.details
+    } for l in logs]
+
+
+# =============================================================
+# 12. ANALYTICS & TRENDS
+# =============================================================
+
+@app.get("/api/analytics/overview")
+def get_analytics_overview(db: Session = Depends(get_db)):
+    total = db.query(func.count(Complaint.complaint_id)).scalar() or 0
+    resolved = db.query(func.count(Complaint.complaint_id)).filter(Complaint.status == "resolved").scalar() or 0
+    bot_resolved = db.query(func.count(Complaint.complaint_id)).filter(Complaint.resolution_mode == "BOT").scalar() or 0
+    human_resolved = db.query(func.count(Complaint.complaint_id)).filter(Complaint.resolution_mode == "HUMAN").scalar() or 0
+    escalated = db.query(func.count(Complaint.complaint_id)).filter(Complaint.status.in_(["escalated", "in_progress", "reopened"])).scalar() or 0
+    
+    avg_score = db.query(func.avg(Complaint.validity_score)).scalar() or 0
+    avg_feedback = db.query(func.avg(Feedback.rating)).scalar() or 0
+
+    # Deflection rate: proportion resolved by Tier-1 Bot
+    bot_deflection_rate = round((bot_resolved / max(total, 1)) * 100, 1)
+
+    # User counts
+    total_users = db.query(func.count(User.user_id)).scalar() or 0
+    total_customers = db.query(func.count(User.user_id)).filter(User.role == "customer").scalar() or 0
+    total_admins = db.query(func.count(User.user_id)).filter(User.role.in_(["admin", "officer", "staff"])).scalar() or 0
+
+    return {
+        "total_complaints": total,
+        "resolved_complaints": resolved,
+        "escalated_active": escalated,
+        "bot_resolved_count": bot_resolved,
+        "human_resolved_count": human_resolved,
+        "bot_deflection_rate_pct": bot_deflection_rate,
+        "avg_validity_score": round(avg_score, 1),
+        "avg_feedback_rating": round(avg_feedback, 2),
+        "registered_users": {
+            "total_registered_users": total_users,
+            "registered_customers": total_customers,
+            "bank_officers_and_admins": total_admins
+        },
+        "kaggle_benchmark": {
+            "dataset_name": "CFPB Consumer Grievance Benchmark Dataset",
+            "curated_training_records": 15420,
+            "accuracy_baseline": "94.2%",
+            "top_categories_modeled": 5
+        }
+    }
+
+@app.get("/api/analytics/trends")
+def get_analytics_trends(db: Session = Depends(get_db)):
+    # Complaints by department
+    dept_stats = db.query(
+        Department.department_name,
+        func.count(Complaint.complaint_id)
+    ).join(Complaint, Department.department_id == Complaint.department_id, isouter=True)\
+     .group_by(Department.department_name).all()
+
+    # Complaints by priority
+    pri_stats = db.query(
+        Complaint.priority,
+        func.count(Complaint.complaint_id)
+    ).group_by(Complaint.priority).all()
+
+    # Complaints by company
+    bank_stats = db.query(
+        Company.company_name,
+        func.count(Complaint.complaint_id)
+    ).join(Complaint, Company.company_id == Complaint.company_id, isouter=True)\
+     .group_by(Company.company_name).all()
+
+    return {
+        "by_department": [{"name": d[0], "count": d[1]} for d in dept_stats if d[0]],
+        "by_priority": [{"priority": p[0], "count": p[1]} for p in pri_stats if p[0]],
+        "by_bank": [{"bank": b[0], "count": b[1]} for b in bank_stats if b[0]]
+    }
+
+
+# =============================================================
+# 14. WORKER RESOLUTION & EVIDENCE VERIFICATION WORKFLOWS
+# =============================================================
+
+@app.post("/api/worker/complaints/{token}/resolution")
+async def submit_worker_resolution(
+    token: str,
+    resolution_details: str = Form(...),
+    resolution_type: str = Form(...),
+    transaction_reference: Optional[str] = Form(None),
+    resolved_amount: Optional[float] = Form(None),
+    resolution_proof: UploadFile = File(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    complaint = db.query(Complaint).filter(Complaint.token == token).first()
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
+    if not resolution_details or len(resolution_details.strip()) < 10:
+        raise HTTPException(status_code=400, detail="Resolution details must be detailed and descriptive (min 10 chars).")
+
+    # Save resolution proof if provided
+    proof_path = None
+    if resolution_proof and resolution_proof.filename:
+        filename = f"res_{int(datetime.utcnow().timestamp())}_{resolution_proof.filename}"
+        proof_path = os.path.join(UPLOAD_DIR, filename)
+        with open(proof_path, "wb") as buffer:
+            shutil.copyfileobj(resolution_proof.file, buffer)
+
+    now = datetime.utcnow()
+    # Create formal Resolution record
+    new_res = Resolution(
+        complaint_id=complaint.complaint_id,
+        worker_id=current_user.user_id,
+        resolution_details=resolution_details.strip(),
+        resolution_type=resolution_type.strip(),
+        transaction_reference=transaction_reference.strip() if transaction_reference else None,
+        resolved_amount=resolved_amount,
+        resolution_proof_path=proof_path,
+        resolution_date=now,
+        customer_confirmation_status="PENDING"
+    )
+    db.add(new_res)
+
+    old_status = complaint.status
+    complaint.status = "resolution_proposed"
+    complaint.resolution_notes = resolution_details.strip()
+    complaint.resolved_at = now
+    complaint.updated_at = now
+
+    db.add(StatusHistory(
+        complaint_id=complaint.complaint_id,
+        old_status=old_status,
+        new_status="resolution_proposed",
+        changed_by=current_user.username,
+        changed_at=now,
+        comment=f"Worker {current_user.full_name} submitted resolution ({resolution_type}). Awaiting customer confirmation."
+    ))
+
+    log_audit_event(
+        db=db,
+        actor_type="officer",
+        action="PROPOSE_RESOLUTION",
+        entity_type="complaint",
+        entity_id=token,
+        details=f"Resolution submitted. Type: {resolution_type}. Amount: {resolved_amount}. Ref: {transaction_reference}",
+        actor_id=current_user.user_id
+    )
+
+    create_notification(
+        db=db,
+        complaint_id=complaint.complaint_id,
+        recipient_type="customer",
+        notification_type="RESOLUTION_PROPOSED",
+        title="Resolution Proposed for Your Grievance",
+        body=f"Your complaint {token} has a resolution submitted. Please review and confirm if your issue is solved."
+    )
+
+    db.commit()
+    return {
+        "message": "Resolution submitted successfully. Case is pending customer confirmation.",
+        "resolution_id": new_res.resolution_id,
+        "status": complaint.status
+    }
+
+class CustomerResolutionConfirmationIn(BaseModel):
+    confirmed: bool  # True -> Resolved & Closed, False -> Reopened
+    feedback_or_reason: str
+
+@app.post("/api/complaints/{token}/confirm-resolution")
+def confirm_resolution(
+    token: str,
+    payload: CustomerResolutionConfirmationIn,
+    db: Session = Depends(get_db)
+):
+    complaint = db.query(Complaint).filter(Complaint.token == token).first()
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
+    res = db.query(Resolution).filter(
+        Resolution.complaint_id == complaint.complaint_id
+    ).order_by(Resolution.resolution_id.desc()).first()
+
+    now = datetime.utcnow()
+
+    if payload.confirmed:
+        # Customer accepts resolution
+        if res:
+            res.customer_confirmation_status = "ACCEPTED"
+            res.customer_feedback = payload.feedback_or_reason
+            res.customer_action_date = now
+
+        old_status = complaint.status
+        complaint.status = "resolved"
+        complaint.can_reopen_until = now + timedelta(days=7)
+        complaint.updated_at = now
+
+        db.add(StatusHistory(
+            complaint_id=complaint.complaint_id,
+            old_status=old_status,
+            new_status="resolved",
+            changed_by="customer",
+            changed_at=now,
+            comment="Customer confirmed resolution. Ticket closed."
+        ))
+
+        log_audit_event(
+            db=db,
+            actor_type="customer",
+            action="CONFIRM_RESOLUTION_ACCEPTED",
+            entity_type="complaint",
+            entity_id=token,
+            details="Customer confirmed and accepted resolution."
+        )
+
+        db.commit()
+        return {"message": "Resolution confirmed. Ticket is resolved.", "status": "resolved"}
+
+    else:
+        # Customer rejects -> Case reopens
+        if res:
+            res.customer_confirmation_status = "REJECTED"
+            res.customer_feedback = payload.feedback_or_reason
+            res.customer_action_date = now
+
+        old_status = complaint.status
+        complaint.status = "reopened"
+        complaint.reopen_count = (complaint.reopen_count or 0) + 1
+        complaint.escalation_level = 2
+        complaint.priority = "High"
+        complaint.escalated_at = now
+        complaint.sla_deadline = now + timedelta(hours=24)
+        complaint.updated_at = now
+
+        db.add(StatusHistory(
+            complaint_id=complaint.complaint_id,
+            old_status=old_status,
+            new_status="reopened",
+            changed_by="customer",
+            changed_at=now,
+            comment=f"Customer rejected proposed resolution: {payload.feedback_or_reason}. Reopened."
+        ))
+
+        log_audit_event(
+            db=db,
+            actor_type="customer",
+            action="CONFIRM_RESOLUTION_REJECTED",
+            entity_type="complaint",
+            entity_id=token,
+            details=f"Customer rejected resolution. Reason: {payload.feedback_or_reason}"
+        )
+
+        db.commit()
+        return {"message": "Resolution rejected. Case has been reopened for reinvestigation.", "status": "reopened"}
+
+class VerifyEvidenceIn(BaseModel):
+    status: str  # VERIFIED or REJECTED
+    reason: Optional[str] = None
+
+@app.put("/api/worker/complaints/{token}/verify-evidence")
+def verify_evidence(
+    token: str,
+    payload: VerifyEvidenceIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    complaint = db.query(Complaint).filter(Complaint.token == token).first()
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
+    complaint.evidence_status = payload.status
+    complaint.evidence_verified_by = current_user.user_id
+    complaint.evidence_verified_at = datetime.utcnow()
+    complaint.evidence_rejection_reason = payload.reason if payload.status == "REJECTED" else None
+
+    db.add(StatusHistory(
+        complaint_id=complaint.complaint_id,
+        old_status=complaint.status,
+        new_status=complaint.status,
+        changed_by=current_user.username,
+        changed_at=datetime.utcnow(),
+        comment=f"Evidence proof marked as {payload.status}. {payload.reason or ''}"
+    ))
+
+    db.commit()
+    return {"message": f"Evidence marked as {payload.status}.", "evidence_status": payload.status}
+
+@app.post("/api/worker/complaints/{token}/ai-evidence-analysis")
+async def ai_evidence_analysis(
+    token: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    AI-powered evidence document analysis.
+    Returns a confidence score (0-100) for how well the attached document
+    supports the complaint category. Uses OCR + keyword matching + semantic similarity.
+    """
+    complaint = db.query(Complaint).filter(Complaint.token == token).first()
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+    
+    if not complaint.proof_path:
+        return {
+            "confidence_score": 0,
+            "confidence_label": "NO DOCUMENT",
+            "confidence_color": "#94a3b8",
+            "analysis": {
+                "file_detected": False,
+                "file_type": None,
+                "ocr_extracted": False,
+                "keyword_match_score": 0,
+                "semantic_relevance_score": 0,
+                "category_alignment": "No document uploaded"
+            },
+            "recommendation": "Request customer to upload supporting document.",
+            "auto_verdict": "PENDING"
+        }
+    
+    # 1. File type detection
+    proof_path = complaint.proof_path
+    file_ext = proof_path.rsplit('.', 1)[-1].lower() if '.' in proof_path else "unknown"
+    
+    file_type_score = 0
+    file_type_label = "Unknown"
+    
+    VALID_EXTENSIONS = {
+        "pdf": ("PDF Statement / Letter", 25),
+        "png": ("Screenshot / Image", 15),
+        "jpg": ("Photo Evidence", 15),
+        "jpeg": ("Photo Evidence", 15),
+        "docx": ("Word Document", 20),
+        "doc": ("Word Document", 18),
+        "txt": ("Text Record", 10),
+        "xlsx": ("Spreadsheet", 12),
+        "csv": ("Data Export", 10)
+    }
+    
+    if file_ext in VALID_EXTENSIONS:
+        file_type_label, file_type_score = VALID_EXTENSIONS[file_ext]
+    
+    # 2. OCR / text extraction
+    ocr_text = ""
+    ocr_extracted = False
+    try:
+        from ocr_service import extract_text_from_file
+        import os
+        full_path = os.path.join("uploads", os.path.basename(proof_path)) if not os.path.isabs(proof_path) else proof_path
+        if os.path.exists(full_path):
+            ocr_text = extract_text_from_file(full_path) or ""
+            ocr_extracted = bool(ocr_text.strip())
+    except Exception:
+        pass
+    
+    # 3. Keyword match: complaint category vs document content
+    CATEGORY_KEYWORDS = {
+        "UPI / IMPS / Digital Fund Transfer": ["upi", "imps", "neft", "rtgs", "transfer", "gpay", "phonepe", "paytm", "transaction", "ref", "utr", "beneficiary", "debit", "credit"],
+        "ATM Cash Withdrawal Failure": ["atm", "cash", "withdrawal", "dispense", "machine", "card", "pin", "balance", "receipt", "slip"],
+        "Credit Card / Disputed Charges & Fee": ["credit card", "statement", "charge", "fee", "annual", "transaction", "disputed", "emi", "limit", "billing"],
+        "Loan Closure, NOC & Document Dispatch": ["loan", "noc", "closure", "foreclosure", "emi", "outstanding", "prepayment", "property", "lien", "account"],
+        "Net Banking / Mobile App & Tech Glitch": ["login", "otp", "app", "netbanking", "password", "account", "transaction", "session", "browser", "mobile"],
+        "KYC, Account Freezing & Dormancy": ["kyc", "account", "freeze", "dormant", "pan", "aadhar", "identity", "verification", "branch", "reactivate"],
+        "Credit Bureau / CIBIL Rectification": ["cibil", "credit score", "bureau", "experian", "equifax", "dispute", "loan", "default", "report", "rating"],
+        "Staff Behavior & Recovery Harassment": ["agent", "call", "harassment", "threat", "rude", "abusive", "recovery", "time", "repeated", "date"],
+        "Lost / Stolen Card & Emergency Block": ["lost", "stolen", "card", "block", "hotlist", "fir", "complaint", "police", "unauthorized", "transaction"]
+    }
+    
+    complaint_cat = complaint.service_type or ""
+    keywords = CATEGORY_KEYWORDS.get(complaint_cat, [])
+    
+    keyword_match_score = 0
+    matched_keywords = []
+    if keywords and ocr_text:
+        text_lower = ocr_text.lower()
+        for kw in keywords:
+            if kw in text_lower:
+                matched_keywords.append(kw)
+        
+        match_ratio = len(matched_keywords) / max(len(keywords), 1)
+        keyword_match_score = min(40, int(match_ratio * 40))
+    elif keywords and not ocr_text:
+        keyword_match_score = 8
+    
+    # 4. Semantic relevance: cosine similarity between description and OCR text
+    semantic_score = 0
+    try:
+        from semantic_engine import get_text_embedding, cosine_similarity as sem_cosine
+        if ocr_text and complaint.description:
+            desc_vec = get_text_embedding(complaint.description[:500])
+            ocr_vec = get_text_embedding(ocr_text[:500])
+            sim = sem_cosine(desc_vec, ocr_vec)
+            semantic_score = min(25, int(sim * 50))
+    except Exception:
+        semantic_score = 5
+    
+    # 5. Composite confidence score
+    ocr_bonus = 10 if ocr_extracted else 0
+    confidence_score = min(100, file_type_score + keyword_match_score + semantic_score + ocr_bonus)
+    
+    # 6. Verdict
+    if confidence_score >= 75:
+        confidence_label = "HIGH CONFIDENCE"
+        confidence_color = "#16a34a"
+        auto_verdict = "VERIFIED"
+        recommendation = "Document appears strongly relevant to the complaint. Recommend verification."
+    elif confidence_score >= 50:
+        confidence_label = "MODERATE"
+        confidence_color = "#d97706"
+        auto_verdict = "REVIEW REQUIRED"
+        recommendation = "Document has partial relevance. Manual review recommended before decision."
+    elif confidence_score >= 25:
+        confidence_label = "LOW CONFIDENCE"
+        confidence_color = "#dc2626"
+        auto_verdict = "LIKELY INVALID"
+        recommendation = "Document does not strongly match complaint type. Request correct document."
+    else:
+        confidence_label = "INSUFFICIENT"
+        confidence_color = "#7c3aed"
+        auto_verdict = "REJECT"
+        recommendation = "Document is unreadable or irrelevant to the complaint. Reject and request re-upload."
+    
+    return {
+        "confidence_score": confidence_score,
+        "confidence_label": confidence_label,
+        "confidence_color": confidence_color,
+        "analysis": {
+            "file_detected": True,
+            "file_type": file_type_label,
+            "file_type_score": file_type_score,
+            "ocr_extracted": ocr_extracted,
+            "ocr_readable_chars": len(ocr_text),
+            "keyword_match_score": keyword_match_score,
+            "matched_keywords": matched_keywords[:10],
+            "semantic_relevance_score": semantic_score,
+            "category_alignment": complaint_cat or "General"
+        },
+        "score_breakdown": {
+            "file_type": file_type_score,
+            "keyword_match": keyword_match_score,
+            "semantic_similarity": semantic_score,
+            "ocr_readable_bonus": ocr_bonus,
+            "total": confidence_score
+        },
+        "recommendation": recommendation,
+        "auto_verdict": auto_verdict
+    }
+
+class InvestigationNoteIn(BaseModel):
+    note_text: str
+
+@app.post("/api/worker/complaints/{token}/notes")
+def add_investigation_note(
+    token: str,
+    payload: InvestigationNoteIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    complaint = db.query(Complaint).filter(Complaint.token == token).first()
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
+    note = InvestigationNote(
+        complaint_id=complaint.complaint_id,
+        worker_id=current_user.user_id,
+        note_text=payload.note_text.strip(),
+        created_at=datetime.utcnow()
+    )
+    db.add(note)
+
+    if complaint.status in ["escalated", "assigned", "open"]:
+        complaint.status = "in_progress"
+
+    db.commit()
+    return {"message": "Investigation note recorded.", "note_id": note.note_id}
+
+@app.get("/api/worker/complaints/{token}/notes")
+def get_investigation_notes(
+    token: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    complaint = db.query(Complaint).filter(Complaint.token == token).first()
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
+    notes = db.query(InvestigationNote).filter(
+        InvestigationNote.complaint_id == complaint.complaint_id
+    ).order_by(InvestigationNote.created_at.desc()).all()
+
+    return [{
+        "note_id": n.note_id,
+        "worker_name": n.worker.full_name if n.worker else "Officer",
+        "note_text": n.note_text,
+        "created_at": n.created_at.isoformat()
+    } for n in notes]
+
+
+# =============================================================
+# 15. BANK INTELLIGENCE & WHAT-IF SIMULATION ENDPOINTS
+# =============================================================
+
+@app.get("/api/intelligence/bank-health")
+def get_bank_health(db: Session = Depends(get_db)):
+    total = db.query(func.count(Complaint.complaint_id)).scalar() or 0
+    resolved = db.query(func.count(Complaint.complaint_id)).filter(Complaint.status == "resolved").scalar() or 0
+    reopened = db.query(func.count(Complaint.complaint_id)).filter(Complaint.status == "reopened").scalar() or 0
+    breached = db.query(func.count(Complaint.complaint_id)).filter(Complaint.sla_breached == True).scalar() or 0
+    avg_rating = db.query(func.avg(Feedback.rating)).scalar() or 4.2
+
+    res_rate = resolved / max(total, 1)
+    sla_comp = (total - breached) / max(total, 1)
+    reopen_rate = reopened / max(total, 1)
+
+    health_metrics = calculate_bank_health_score(
+        resolution_rate=res_rate,
+        sla_compliance_rate=sla_comp,
+        avg_tat_days=4.2,
+        reopen_rate=reopen_rate,
+        satisfaction_avg=avg_rating
+    )
+
+    warnings = detect_early_warnings(db)
+    recommendations = generate_management_recommendations(health_metrics, warnings)
+
+    return {
+        "health_summary": health_metrics,
+        "early_warnings": warnings,
+        "management_recommendations": recommendations,
+        "sample_period": "Rolling 10-Month Performance Metric"
+    }
+
+class SimulationIn(BaseModel):
+    department_id: Optional[int] = None
+    company_id: Optional[int] = None
+    proposed_workers: int = 8
+    volume_change_pct: float = 0.0
+
+@app.post("/api/intelligence/what-if-simulation")
+def get_what_if_simulation(payload: SimulationIn, db: Session = Depends(get_db)):
+    """
+    Bank & Department-aware What-If Resource Simulation using real DB operational data.
+    """
+    from create_db import Complaint, User, Department, Company
+    
+    dept_name = "All Departments"
+    bank_name = "All Banks"
+    
+    q = db.query(Complaint)
+    if payload.company_id:
+        q = q.filter(Complaint.company_id == payload.company_id)
+        bank = db.query(Company).filter(Company.company_id == payload.company_id).first()
+        if bank:
+            bank_name = bank.name
+    if payload.department_id:
+        q = q.filter(Complaint.department_id == payload.department_id)
+        dept = db.query(Department).filter(Department.department_id == payload.department_id).first()
+        if dept:
+            dept_name = dept.name
+    
+    wq = db.query(User).filter(User.role.in_(["officer", "staff"]), User.is_active == True)
+    if payload.department_id:
+        wq = wq.filter(User.department_id == payload.department_id)
+    current_workers = max(wq.count(), 1)
+    
+    pending_q = q.filter(Complaint.status.in_(["open", "in_progress", "escalated"]))
+    current_pending = pending_q.count()
+    
+    volume_factor = 1.0 + (payload.volume_change_pct / 100.0)
+    simulated_volume = max(1, int(current_pending * volume_factor))
+    
+    resolved_with_times = q.filter(
+        Complaint.status.in_(["resolved", "closed"]),
+        Complaint.resolved_at.isnot(None)
+    ).all()
+    
+    avg_tat_hours = 72.0
+    if resolved_with_times:
+        tats = []
+        for c in resolved_with_times[:100]:
+            try:
+                diff = (c.resolved_at - c.created_at).total_seconds() / 3600
+                if 0 < diff < 8760:
+                    tats.append(diff)
+            except:
+                pass
+        if tats:
+            avg_tat_hours = round(sum(tats) / len(tats), 1)
+    
+    proposed_workers = max(payload.proposed_workers, 1)
+    worker_ratio = current_workers / float(proposed_workers)
+    
+    simulated_tat = round(avg_tat_hours * (0.3 + 0.7 * worker_ratio) * max(0.5, volume_factor ** 0.4), 1)
+    tat_change_pct = round(((avg_tat_hours - simulated_tat) / max(avg_tat_hours, 1)) * 100, 1)
+    
+    simulated_pending = max(0, int(simulated_volume * (0.4 + 0.6 * worker_ratio)))
+    
+    sla_pressure = round(worker_ratio * volume_factor * 5.5, 1)
+    sla_pressure = max(1.0, min(10.0, sla_pressure))
+    
+    if sla_pressure <= 3.0:
+        sla_risk_label = "LOW"
+        sla_risk_color = "#16a34a"
+    elif sla_pressure <= 5.5:
+        sla_risk_label = "MEDIUM"
+        sla_risk_color = "#d97706"
+    elif sla_pressure <= 7.5:
+        sla_risk_label = "HIGH"
+        sla_risk_color = "#dc2626"
+    else:
+        sla_risk_label = "CRITICAL"
+        sla_risk_color = "#7c3aed"
+    
+    if sla_pressure > 7:
+        breach_risk_pct = min(95, int((sla_pressure - 7) * 30 + 55))
+    elif sla_pressure > 5:
+        breach_risk_pct = int((sla_pressure - 5) * 20 + 15)
+    else:
+        breach_risk_pct = max(2, int(sla_pressure * 3))
+    
+    return {
+        "disclaimer": "Scenario Estimate — Not Guaranteed Prediction (Mathematical Projection from Operational Data)",
+        "context": {
+            "bank": bank_name,
+            "department": dept_name,
+            "volume_change_pct": payload.volume_change_pct
+        },
+        "current": {
+            "workers": current_workers,
+            "pending_complaints": current_pending,
+            "avg_tat_hours": avg_tat_hours
+        },
+        "proposed": {
+            "workers": proposed_workers,
+            "volume_change_pct": payload.volume_change_pct,
+            "simulated_complaint_volume": simulated_volume
+        },
+        "projections": {
+            "estimated_tat_hours": simulated_tat,
+            "tat_change_percentage": tat_change_pct,
+            "estimated_pending_complaints": simulated_pending,
+            "projected_sla_pressure_score": sla_pressure,
+            "sla_risk_label": sla_risk_label,
+            "sla_risk_color": sla_risk_color,
+            "breach_risk_percentage": breach_risk_pct
+        }
+    }
+
+@app.get("/api/intelligence/simulation-context")
+def get_simulation_context(db: Session = Depends(get_db)):
+    """
+    Returns dynamic dropdown options and real operational data to pre-fill the What-If simulator.
+    """
+    from create_db import Company, Department, Complaint, User
+    
+    banks = db.query(Company).all()
+    depts = db.query(Department).all()
+    
+    dept_stats = []
+    for dept in depts:
+        workers = db.query(User).filter(
+            User.department_id == dept.department_id,
+            User.role.in_(["officer", "staff"]),
+            User.is_active == True
+        ).count()
+        
+        pending = db.query(Complaint).filter(
+            Complaint.department_id == dept.department_id,
+            Complaint.status.in_(["open", "in_progress", "escalated"])
+        ).count()
+        
+        resolved = db.query(Complaint).filter(
+            Complaint.department_id == dept.department_id,
+            Complaint.status.in_(["resolved", "closed"])
+        ).count()
+        
+        total = db.query(Complaint).filter(
+            Complaint.department_id == dept.department_id
+        ).count()
+        
+        resolved_with_tat = db.query(Complaint).filter(
+            Complaint.department_id == dept.department_id,
+            Complaint.status.in_(["resolved", "closed"]),
+            Complaint.resolved_at.isnot(None),
+            Complaint.created_at.isnot(None)
+        ).all()
+        
+        avg_tat_hours = 72.0
+        if resolved_with_tat:
+            tats = []
+            for c in resolved_with_tat[:50]:
+                try:
+                    diff = (c.resolved_at - c.created_at).total_seconds() / 3600
+                    if 0 < diff < 8760:
+                        tats.append(diff)
+                except:
+                    pass
+            if tats:
+                avg_tat_hours = round(sum(tats) / len(tats), 1)
+        
+        dept_stats.append({
+            "department_id": dept.department_id,
+            "name": dept.name,
+            "current_workers": max(workers, 1),
+            "pending_complaints": pending,
+            "resolved_complaints": resolved,
+            "total_complaints": total,
+            "avg_tat_hours": avg_tat_hours
+        })
+    
+    bank_stats = []
+    for bank in banks:
+        pending = db.query(Complaint).filter(
+            Complaint.company_id == bank.company_id,
+            Complaint.status.in_(["open", "in_progress", "escalated"])
+        ).count()
+        total = db.query(Complaint).filter(
+            Complaint.company_id == bank.company_id
+        ).count()
+        bank_stats.append({
+            "company_id": bank.company_id,
+            "name": bank.name,
+            "pending_complaints": pending,
+            "total_complaints": total
+        })
+    
+    return {
+        "banks": bank_stats,
+        "departments": dept_stats
+    }
+
+
+
+# =============================================================
+# 16. DOCUMENT PRE-VALIDATION (Real-time on upload)
+# =============================================================
+
+@app.post("/api/validate-document")
+async def validate_document(
+    service_type: str = Form(...),
+    proof_file: UploadFile = File(...),
+    submitted_bank: Optional[str] = Form(None),
+    submitted_date: Optional[str] = Form(None),
+    submitted_amount: Optional[float] = Form(None),
+    submitted_ref_id: Optional[str] = Form(None),
+    submitted_branch: Optional[str] = Form(None),
+):
+    """
+    Real-time document validation endpoint called immediately when user uploads a proof file.
+    Returns mismatch warnings before final complaint submission.
+    """
+    if not proof_file or not proof_file.filename:
+        return {"valid": False, "message": "No file provided."}
+
+    # Save temp file
+    temp_filename = f"tmp_{int(datetime.utcnow().timestamp())}_{proof_file.filename}"
+    temp_path = os.path.join(UPLOAD_DIR, temp_filename)
+    with open(temp_path, "wb") as buffer:
+        shutil.copyfileobj(proof_file.file, buffer)
+
+    try:
+        CATEGORY_DOC_KEYWORDS = {
+            "UPI / IMPS / Digital Fund Transfer": ["upi", "imps", "transfer", "utr", "transaction", "npci", "payment", "debit", "gpay", "phonepe", "paytm"],
+            "Credit Card / Disputed Charges & Fee": ["card", "credit", "debit", "chargeback", "statement", "billing", "merchant", "pos", "transaction"],
+            "Net Banking / Mobile App & Tech Glitch": ["netbanking", "net banking", "mobile", "internet", "login", "app", "otp", "session", "error"],
+            "Loan Closure, NOC & Document Dispatch": ["loan", "emi", "interest", "principal", "repayment", "outstanding", "foreclosure", "noc", "lien"],
+            "KYC, Account Freezing & Dormancy": ["account", "savings", "current", "kyc", "freeze", "dormant", "balance", "statement", "pan", "aadhaar"],
+            "Credit Bureau / CIBIL Rectification": ["cibil", "credit score", "bureau", "experian", "report", "overdue", "dpd", "cir"],
+            "Lost / Stolen Card & Emergency Block": ["card", "lost", "stolen", "block", "hotlist", "deactivate", "replacement", "police"],
+            "ATM Cash Withdrawal Failure": ["atm", "cash", "dispense", "withdrawal", "machine", "slip", "debit"],
+            "Staff Behavior & Recovery Harassment": ["complaint", "harassment", "recovery", "agent", "misconduct", "staff", "threat"],
+        }
+
+        # Cross-verify form fields and document content authenticity via analyze_document_proof
+        ocr_result = analyze_document_proof(
+            file_path=temp_path,
+            submitted_bank=submitted_bank,
+            submitted_date=submitted_date,
+            submitted_amount=submitted_amount,
+            submitted_ref_id=submitted_ref_id,
+            submitted_branch=submitted_branch
+        )
+
+        warnings = []
+        if ocr_result.get("mismatch_detected"):
+            warnings.extend(ocr_result.get("mismatch_details", []))
+
+        extracted_text = (ocr_result.get("extracted_text") or "").lower()
+
+        # Check for category-specific keywords if text was extracted
+        expected_keywords = CATEGORY_DOC_KEYWORDS.get(service_type, [])
+        matched_keywords = [kw for kw in expected_keywords if kw in extracted_text]
+
+        if extracted_text and len(extracted_text) > 40 and expected_keywords and len(matched_keywords) == 0:
+            warnings.append(
+                f"The uploaded document does not appear to contain terms relevant to '{service_type}'. "
+                f"Expected to find references like: {', '.join(expected_keywords[:4])}."
+            )
+
+        is_valid = len(warnings) == 0
+
+        return {
+            "valid": is_valid,
+            "warnings": warnings,
+            "matched_keywords": matched_keywords,
+            "extraction_mode": ocr_result.get("extraction_mode", "DOCUMENT_PARSER"),
+            "message": "Document verified — content appears relevant to the selected complaint category." if is_valid else f"{len(warnings)} discrepancy/ies detected in the uploaded file."
+        }
+
+    finally:
+        # Clean up temp file
+        try:
+            os.remove(temp_path)
+        except Exception:
+            pass
+
+
+# =============================================================
+# 17. OFFICER / EMPLOYEE PORTAL ENDPOINTS
+# =============================================================
+
+@app.get("/api/officer/complaints")
+def get_officer_complaints(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Returns complaints assigned to the current officer/staff user."""
+    if current_user.role.lower() not in ['officer', 'staff', 'admin']:
+        raise HTTPException(status_code=403, detail="Not authorized as an officer.")
+
+    if current_user.role.lower() == 'admin':
+        # Admin sees all complaints
+        complaints = db.query(Complaint).order_by(Complaint.complaint_id.desc()).limit(100).all()
+    else:
+        # Officer sees their department's complaints or assigned complaints
+        query = db.query(Complaint)
+        if current_user.department_id:
+            query = query.filter(
+                (Complaint.current_assigned_officer_id == current_user.user_id) |
+                (Complaint.department_id == current_user.department_id)
+            )
+        else:
+            query = query.filter(Complaint.current_assigned_officer_id == current_user.user_id)
+        complaints = query.order_by(Complaint.complaint_id.desc()).limit(100).all()
+
+    result = []
+    for c in complaints:
+        from sla_engine import evaluate_sla_status
+        sla_info = evaluate_sla_status(c.sla_deadline, c.status)
+        customer = db.query(User).filter(User.user_id == c.customer_id).first() if c.customer_id else None
+        latest_res = db.query(Resolution).filter(Resolution.complaint_id == c.complaint_id).order_by(Resolution.resolution_id.desc()).first()
+        result.append({
+            "complaint_id": c.complaint_id,
+            "token": c.token,
+            "company_name": c.company.company_name if c.company else "Unknown",
+            "department_name": c.department.department_name if c.department else "Unassigned",
+            "service_type": c.service_type,
+            "sub_category": c.sub_category or "General Grievance",
+            "description": c.description,
+            "amount": c.amount,
+            "reference_id": c.reference_id,
+            "transaction_date": c.transaction_date,
+            "branch": c.branch,
+            "priority": c.priority,
+            "status": c.status,
+            "validity_score": c.validity_score,
+            "resolution_mode": c.resolution_mode,
+            "evidence_status": c.evidence_status or "PENDING",
+            "evidence_rejection_reason": c.evidence_rejection_reason,
+            "proof_file_path": c.proof_file_path,
+            "resolution_notes": c.resolution_notes,
+            "sla": sla_info,
+            "created_at": c.created_at.isoformat() if c.created_at else c.submitted_at,
+            "customer_name": customer.full_name if customer else "Anonymous",
+            "customer_email": customer.email if customer else None,
+            "has_resolution": latest_res is not None,
+            "resolution_status": latest_res.customer_confirmation_status if latest_res else None,
+        })
+    return result
+
+
+@app.get("/api/officer/stats")
+def get_officer_stats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Returns KPI stats for the logged-in officer."""
+    if current_user.role.lower() not in ['officer', 'staff', 'admin']:
+        raise HTTPException(status_code=403, detail="Not authorized.")
+
+    dept_id = current_user.department_id
+    base_q = db.query(Complaint)
+    if dept_id and current_user.role.lower() != 'admin':
+        base_q = base_q.filter(
+            (Complaint.current_assigned_officer_id == current_user.user_id) |
+            (Complaint.department_id == dept_id)
+        )
+
+    total = base_q.count()
+    resolved = base_q.filter(Complaint.status == "resolved").count()
+    pending = base_q.filter(Complaint.status.in_(["open", "in_progress", "escalated"])).count()
+    high_priority = base_q.filter(Complaint.priority == "High", Complaint.status != "resolved").count()
+    sla_breached = base_q.filter(Complaint.sla_breached == True).count()
+
+    return {
+        "officer_name": current_user.full_name,
+        "department": current_user.department.department_name if current_user.department else "All Departments",
+        "role": current_user.role,
+        "total_assigned": total,
+        "resolved": resolved,
+        "pending": pending,
+        "high_priority_open": high_priority,
+        "sla_breached": sla_breached,
+        "resolution_rate_pct": round((resolved / max(total, 1)) * 100, 1)
+    }
+
 
 @app.get("/")
 def root():
     return {
-        "status": "online",
-        "system": "GrievanceIQ API",
-        "frontend_url": "http://localhost:5173",
-        "api_documentation": "http://127.0.0.1:8000/docs"
+        "app": "GrievanceIQ API",
+        "status": "operational",
+        "docs_url": "/docs",
+        "version": "2.0.0"
     }
 
-# --- Load saved model + vectorizer ---
-with open(r"G:\Mini_project\Python_codes\classifier.pkl", "rb") as f:
-    classifier = pickle.load(f)
-with open(r"G:\Mini_project\Python_codes\vectorizer.pkl", "rb") as f:
-    vectorizer = pickle.load(f)
-
-# --- Database setup ---
-engine = create_engine(r"sqlite:///G:\Mini_project\Dataset\grievanceiq.db")
-Session = sessionmaker(bind=engine)
-
-# --- Urgency Keywords ---
-HIGH_URGENCY = [
-    "fraud", "fraudulent", "unauthorized transaction", "identity theft",
-    "stolen", "lawsuit", "legal action", "attorney", "sue", "scam",
-    "threatened", "harassment", "discrimination", "police report",
-    "illegal", "emergency", "account hacked", "phishing", "unauthorized withdrawal"
-]
-MEDIUM_URGENCY = [
-    "dispute", "disputed", "incorrect information", "overcharged",
-    "denied", "rejected", "late fee", "credit score dropped",
-    "frustrated", "delay in resolution", "emi deducted", "failed transaction",
-    "refund pending", "card blocked", "kyc pending"
-]
-
-# Specific factual/banking tokens to differentiate genuine complaints from purely emotional rants
-FACTUAL_BANKING_TERMS = [
-    "transaction", "account", "bank", "card", "debit", "credit", "amount",
-    "charge", "fee", "payment", "transfer", "emi", "loan", "balance",
-    "refund", "atm", "branch", "statement", "upi", "cheque", "interest",
-    "limit", "deducted", "credited", "failed", "pending", "dispute", "unauthorized",
-    "otp", "imps", "neft", "rtgs", "kyc", "fraud"
-]
-
-def clean_text(text):
-    text = str(text).lower()
-    text = re.sub(r'[^a-z0-9\s]', ' ', text)
-    text = re.sub(r'\s+', ' ', text).strip()
-    return text
-
-def score_priority(text):
-    matched_high = [kw for kw in HIGH_URGENCY if re.search(r'\b' + re.escape(kw) + r'\b', text)]
-    matched_medium = [kw for kw in MEDIUM_URGENCY if re.search(r'\b' + re.escape(kw) + r'\b', text)]
-    if matched_high:
-        return "High", matched_high
-    elif matched_medium:
-        return "Medium", matched_medium
-    else:
-        return "Low", []
-
-def check_validity(narrative, reference_id, amount, transaction_date, service_type, proof, proof_bytes=None):
-    checklist = {}
-    score = 0
-
-    # 1. Evidence available (25 points) — mandatory
-    has_proof = proof is not None and getattr(proof, "filename", None)
-    checklist["evidence_available"] = bool(has_proof)
-    if has_proof:
-        score += 25
-
-    # 2. Transaction details provided (25 points)
-    date_valid = True
-    if transaction_date:
-        try:
-            date_valid = datetime.strptime(transaction_date, "%Y-%m-%d").date() <= datetime.now().date()
-        except ValueError:
-            date_valid = False
-
-    has_txn_details = bool(reference_id) and amount is not None and bool(transaction_date) and date_valid
-    checklist["transaction_details_provided"] = has_txn_details
-    if has_txn_details:
-        score += 25
-
-    # 3. Service/category identified (15 points)
-    has_service = bool(service_type)
-    checklist["service_identified"] = has_service
-    if has_service:
-        score += 15
-
-    # 4. SBERT & Heuristic Semantic Grievance Analysis (35 points)
-    words = re.findall(r"[a-zA-Z]{2,}", narrative.lower())
-    unique_words = set(words)
-    has_substance = len(narrative.strip()) >= 35 and len(words) >= 7 and len(unique_words) >= 5
-
-    PROBLEM_ACTION_INDICATORS = [
-        "deducted", "debited", "charged", "withdrawn", "credited", "reversed",
-        "failed", "pending", "blocked", "declined", "error", "unauthorized",
-        "scam", "fraud", "hacked", "dispute", "disputed", "stolen", "loss",
-        "refund", "delayed", "delay", "issue", "problem", "not received",
-        "wrong", "excess", "overcharged", "harassment", "closed", "foreclosure"
-    ]
-    
-    has_banking_entity = any(w in FACTUAL_BANKING_TERMS for w in words)
-    has_problem_action = any(w in narrative.lower() for w in PROBLEM_ACTION_INDICATORS)
-
-    # Extract proof text if proof bytes provided
-    proof_text = ""
-    if proof_bytes and hasattr(proof, "filename"):
-        proof_text = extract_text_from_file(proof_bytes, proof.filename)
-
-    # Run SBERT semantic analysis
-    sbert_res = analyze_semantic_validity(narrative, proof_text)
-    narrative_sbert_score = sbert_res["narrative_semantic_score"]
-    proof_similarity_score = sbert_res["proof_similarity_score"]
-    is_sbert_valid = sbert_res["is_semantically_valid"]
-
-    # Valid if: sentence substance + banking problem action + SBERT similarity to banking complaint benchmarks
-    is_genuine_complaint = has_substance and has_banking_entity and has_problem_action and is_sbert_valid
-
-    checklist["issue_clearly_described"] = bool(is_genuine_complaint)
-    checklist["problem_action_described"] = bool(has_problem_action)
-    checklist["banking_entity_mentioned"] = bool(has_banking_entity)
-    checklist["sbert_semantic_match"] = bool(is_sbert_valid)
-    checklist["sbert_score"] = narrative_sbert_score
-    checklist["proof_similarity_score"] = proof_similarity_score
-    
-    if is_genuine_complaint:
-        score += 35
-
-    if score >= 70:
-        decision = "ACTIONABLE COMPLAINT"
-    else:
-        decision = "MORE INFORMATION REQUIRED"
-
-    return score, checklist, decision, narrative_sbert_score, proof_similarity_score, proof_text
-
-def assign_worker_least_loaded(session, department_id: int):
-    """Fair auto-assignment: picks the bot worker with the lowest active workload in that department."""
-    workers = session.query(Worker).filter_by(department_id=department_id, is_active=True).all()
-    if not workers:
-        return None
-    
-    # Calculate active load for each worker
-    best_worker = None
-    min_load = float('inf')
-    for w in workers:
-        active_load = session.query(Complaint).filter(
-            Complaint.assigned_worker_id == w.worker_id,
-            Complaint.status.in_(["open", "in_progress"])
-        ).count()
-        if active_load < min_load:
-            min_load = active_load
-            best_worker = w
-            
-    return best_worker.worker_id if best_worker else workers[0].worker_id
-
-def calculate_sla(priority: str):
-    """
-    SLA Calculation:
-    High: 24 hours
-    Medium: 7 days
-    Low: 30 days
-    """
-    now = datetime.now()
-    if priority == "High":
-        return now + timedelta(hours=24)
-    elif priority == "Medium":
-        return now + timedelta(days=7)
-    else:
-        return now + timedelta(days=30)
-
-def refresh_sla_escalations(session):
-    """Checks all unresolved complaints and updates is_escalated flag if past due_date.
-    Also auto-advances complaints that have been in 'resolved' status for over 48 hours to 'closed'."""
-    now = datetime.now()
-    unresolved = session.query(Complaint).filter(
-        Complaint.status.in_(["open", "in_progress"]),
-        Complaint.due_date.isnot(None),
-        Complaint.due_date < now
-    ).all()
-    for c in unresolved:
-        c.is_escalated = True
-
-    # Auto-close complaints resolved for > 48 hours
-    auto_close_cutoff = now - timedelta(hours=48)
-    auto_closable = session.query(Complaint).filter(
-        Complaint.status == "resolved",
-        Complaint.resolved_at.isnot(None),
-        Complaint.resolved_at <= auto_close_cutoff
-    ).all()
-    for c in auto_closable:
-        c.status = "closed"
-        c.stage = "Closed"
-
-    session.commit()
-
-def generate_token(session):
-    count = session.query(Complaint).count()
-    return f"GRV-2026-{count + 1:05d}"
-
-# --- Auth config ---
-SECRET_KEY = "grievanceiq-secret-key-change-this-later"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 120
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/user/login")
-
-def create_access_token(data: dict):
-    to_encode = data.copy()
-    expire = datetime.now() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-
-def get_current_user(token: str = Depends(oauth2_scheme)):
-    credentials_exception = HTTPException(status_code=401, detail="Could not validate credentials")
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        email: str = payload.get("sub")
-        role: str = payload.get("role")
-        user_id: int = payload.get("user_id")
-        worker_id: str = payload.get("worker_id")
-        employee_id: str = payload.get("employee_id")
-        if email is None:
-            raise credentials_exception
-        return {
-            "email": email,
-            "role": role,
-            "user_id": user_id,
-            "worker_id": worker_id,
-            "employee_id": employee_id
-        }
-    except JWTError:
-        raise credentials_exception
-
-def verify_admin(current_user: dict = Depends(get_current_user)):
-    if current_user["role"] != "admin":
-        raise HTTPException(status_code=403, detail="Admin privileges required")
-    return current_user["email"]
-
-def verify_employee(current_user: dict = Depends(get_current_user)):
-    if current_user["role"] != "employee":
-        raise HTTPException(status_code=403, detail="Employee privileges required")
-    return current_user
-
-# --- Request/response models ---
-class FeedbackIn(BaseModel):
-    rating: int
-    comment: str | None = None
-
-class StatusUpdate(BaseModel):
-    status: str
-    stage: str | None = None
-    rejection_reason: str | None = None
-    resolution_notes: str | None = None
-    resolution_proof_url: str | None = None
-    requires_more_proof: str | None = None
-
-class LoginIn(BaseModel):
-    email: str
-    password: str
-
-class RegisterIn(BaseModel):
-    name: str
-    email: str
-    password: str
-    phone: str | None = None
-
-class UserProfileUpdate(BaseModel):
-    name: str | None = None
-    phone: str | None = None
-    address: str | None = None
-    birthdate: str | None = None
-    avatar_url: str | None = None
-
-class EmployeeLoginStep1(BaseModel):
-    employee_id: str
-    password: str
-
-class EmployeeLoginStep2(BaseModel):
-    employee_id: str
-    otp: str | None = None
-    otp_code: str | None = None
-
-class CustomerAppealIn(BaseModel):
-    appeal_text: str
-    is_satisfied: bool = False
-
-# --- Auth Endpoints ---
-
-@app.post("/auth/register")
-def register_user(reg: RegisterIn):
-    session = Session()
-    existing = session.query(User).filter_by(email=reg.email.strip().lower()).first()
-    if existing:
-        session.close()
-        raise HTTPException(status_code=400, detail="An account with this email already exists.")
-    
-    hashed = bcrypt.hashpw(reg.password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-    new_user = User(
-        name=reg.name.strip(),
-        email=reg.email.strip().lower(),
-        password_hash=hashed,
-        role="user"
-    )
-    session.add(new_user)
-    session.commit()
-    token = create_access_token(data={"sub": new_user.email, "role": new_user.role, "user_id": new_user.id})
-    user_data = {"id": new_user.id, "name": new_user.name, "email": new_user.email, "role": new_user.role}
-    session.close()
-    return {"access_token": token, "token_type": "bearer", "user": user_data}
-
-@app.post("/auth/user/login")
-def user_login(credentials: LoginIn):
-    session = Session()
-    user = session.query(User).filter_by(email=credentials.email.strip().lower()).first()
-    session.close()
-
-    if not user or not bcrypt.checkpw(credentials.password.encode("utf-8"), user.password_hash.encode("utf-8")):
-        raise HTTPException(status_code=401, detail="Invalid email or password")
-
-    access_token = create_access_token(data={"sub": user.email, "role": user.role, "user_id": user.id})
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "id": user.id,
-        "role": user.role,
-        "name": user.name,
-        "email": user.email
-    }
-
-@app.post("/auth/admin/login")
-@app.post("/login")  # Maintain backward compatibility
-def admin_login(credentials: LoginIn):
-    session = Session()
-    user = session.query(User).filter_by(email=credentials.email.strip().lower()).first()
-    session.close()
-
-    if not user or user.role != "admin":
-        raise HTTPException(status_code=401, detail="Invalid admin credentials")
-
-    if not bcrypt.checkpw(credentials.password.encode("utf-8"), user.password_hash.encode("utf-8")):
-        raise HTTPException(status_code=401, detail="Invalid admin credentials")
-
-    access_token = create_access_token(data={"sub": user.email, "role": user.role, "user_id": user.id})
-    return {"access_token": access_token, "token_type": "bearer", "role": user.role, "name": user.name}
-
-# --- Employee Authentication with 2FA / OTP ---
-
-@app.post("/auth/employee/login-step1")
-def employee_login_step1(creds: EmployeeLoginStep1):
-    session = Session()
-    worker = session.query(Worker).filter_by(employee_id=creds.employee_id.strip()).first()
-
-    if not worker or not worker.password_hash or not bcrypt.checkpw(creds.password.encode("utf-8"), worker.password_hash.encode("utf-8")):
-        session.close()
-        raise HTTPException(status_code=401, detail="Invalid Employee ID or password")
-
-    # Generate a realistic 6-digit OTP code (demo fallback: 123456 or random)
-    import random
-    otp = f"{random.randint(100000, 999999)}"
-    worker.otp_code = otp
-    worker.otp_expires_at = datetime.now() + timedelta(minutes=10)
-    session.commit()
-
-    phone_masked = worker.phone or "+91 98201 XXXXX"
-    if len(phone_masked) > 6:
-        phone_display = phone_masked[:7] + "XXXX" + phone_masked[-2:]
-    else:
-        phone_display = phone_masked
-
-    session.close()
-    return {
-        "message": f"OTP successfully dispatched to registered mobile {phone_display}",
-        "employee_id": creds.employee_id,
-        "phone_masked": phone_display,
-        "demo_otp": otp,
-        "dev_demo_otp": otp
-    }
-
-@app.post("/auth/employee/verify-otp")
-def employee_verify_otp(creds: EmployeeLoginStep2):
-    session = Session()
-    worker = session.query(Worker).filter_by(employee_id=creds.employee_id.strip()).first()
-
-    if not worker:
-        session.close()
-        raise HTTPException(status_code=404, detail="Employee record not found")
-
-    submitted_otp = (creds.otp or creds.otp_code or "").strip()
-    if not worker.otp_code or worker.otp_code != submitted_otp:
-        session.close()
-        raise HTTPException(status_code=400, detail="Invalid or expired OTP code")
-
-    dept = session.query(Department).filter_by(id=worker.department_id).first()
-
-    # Clear OTP after verification
-    worker.otp_code = None
-    session.commit()
-
-    access_token = create_access_token(data={
-        "sub": worker.email or worker.employee_id,
-        "role": "employee",
-        "worker_id": worker.worker_id,
-        "employee_id": worker.employee_id,
-        "user_id": worker.id
-    })
-
-    worker_data = {
-        "worker_id": worker.worker_id,
-        "employee_id": worker.employee_id,
-        "name": worker.name,
-        "email": worker.email,
-        "phone": worker.phone,
-        "department": dept.name if dept else "Banking Operations",
-        "role": "employee"
-    }
-    session.close()
-
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "employee": worker_data
-    }
-
-# --- User Profile Settings & Picture Upload ---
-
-@app.get("/user/profile")
-def get_user_profile(current_user: dict = Depends(get_current_user)):
-    session = Session()
-    user = session.query(User).filter_by(id=current_user["user_id"]).first()
-    if not user:
-        session.close()
-        raise HTTPException(status_code=404, detail="User not found")
-
-    data = {
-        "id": user.id,
-        "name": user.name,
-        "email": user.email,
-        "phone": user.phone or "",
-        "address": user.address or "",
-        "birthdate": user.birthdate or "",
-        "avatar_url": user.avatar_url or "",
-        "role": user.role
-    }
-    session.close()
-    return data
-
-@app.put("/user/profile")
-def update_user_profile(update: UserProfileUpdate, current_user: dict = Depends(get_current_user)):
-    session = Session()
-    user = session.query(User).filter_by(id=current_user["user_id"]).first()
-    if not user:
-        session.close()
-        raise HTTPException(status_code=404, detail="User not found")
-
-    if update.name is not None:
-        user.name = update.name
-    if update.phone is not None:
-        user.phone = update.phone
-    if update.address is not None:
-        user.address = update.address
-    if update.birthdate is not None:
-        user.birthdate = update.birthdate
-    if update.avatar_url is not None:
-        user.avatar_url = update.avatar_url
-
-    session.commit()
-    data = {
-        "id": user.id,
-        "name": user.name,
-        "email": user.email,
-        "phone": user.phone or "",
-        "address": user.address or "",
-        "birthdate": user.birthdate or "",
-        "avatar_url": user.avatar_url or "",
-    }
-    session.close()
-    return {"message": "Profile updated successfully", "user": data}
-
-@app.post("/user/avatar")
-def upload_user_avatar(file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
-    session = Session()
-    user = session.query(User).filter_by(id=current_user["user_id"]).first()
-    if not user:
-        session.close()
-        raise HTTPException(status_code=404, detail="User not found")
-
-    ext = os.path.splitext(file.filename)[1] or ".png"
-    safe_name = f"avatar_{user.id}_{uuid.uuid4().hex[:6]}{ext}"
-    full_path = os.path.join(UPLOAD_DIR, safe_name)
-    with open(full_path, "wb") as f:
-        f.write(file.file.read())
-
-    avatar_url = f"/uploads/{safe_name}"
-    user.avatar_url = avatar_url
-    session.commit()
-    session.close()
-    return {"message": "Avatar uploaded successfully", "avatar_url": avatar_url}
-
-# --- Complaint Submission & User Endpoints ---
-
-@app.post("/complaint")
-def submit_complaint(
-    narrative: str = Form(...),
-    company: str = Form(...),
-    transaction_date: str | None = Form(None),
-    reference_id: str | None = Form(None),
-    amount: float | None = Form(None),
-    branch: str | None = Form(None),
-    service_type: str | None = Form(None),
-    user_id: int | None = Form(None),
-    proof: UploadFile = File(...),
-):
-    # Read proof bytes once for storage and SBERT semantic analysis
-    proof_bytes = proof.file.read()
-
-    validity_score, checklist, decision, narrative_sbert_score, proof_similarity_score, proof_text = check_validity(
-        narrative, reference_id, amount, transaction_date, service_type, proof, proof_bytes=proof_bytes
-    )
-
-    if transaction_date:
-        try:
-            if datetime.strptime(transaction_date, "%Y-%m-%d").date() > datetime.now().date():
-                raise HTTPException(
-                    status_code=422,
-                    detail={
-                        "message": "Transaction date cannot be in the future.",
-                        "validity_score": validity_score,
-                        "decision": "INVALID DATE",
-                        "checklist": checklist
-                    },
-                )
-        except ValueError:
-            pass
-
-    if decision == "MORE INFORMATION REQUIRED":
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "message": "Complaint could not be validated. Please check the required fields, upload proof, and describe the factual issue.",
-                "validity_score": validity_score,
-                "decision": decision,
-                "checklist": checklist,
-            },
-        )
-
-    session = Session()
-    cleaned = clean_text(narrative)
-    tfidf_vec = vectorizer.transform([cleaned])
-    predicted_dept_name = classifier.predict(tfidf_vec)[0]
-    priority, matched_keywords = score_priority(cleaned)
-
-    dept = session.query(Department).filter_by(name=predicted_dept_name).first()
-    if not dept:
-        dept = Department(name=predicted_dept_name)
-        session.add(dept)
-        session.flush()
-
-    comp = session.query(Company).filter_by(name=company).first()
-    if not comp:
-        comp = Company(name=company)
-        session.add(comp)
-        session.flush()
-
-    token = generate_token(session)
-
-    # File storage
-    ext = os.path.splitext(proof.filename)[1]
-    safe_name = f"{token}_{uuid.uuid4().hex[:8]}{ext}"
-    full_path = os.path.join(UPLOAD_DIR, safe_name)
-    with open(full_path, "wb") as f:
-        f.write(proof_bytes)
-    proof_path = f"/uploads/{safe_name}"
-
-    # Auto-assignment & SLA
-    assigned_worker_id = assign_worker_least_loaded(session, dept.id)
-    due_date = calculate_sla(priority)
-
-    new_complaint = Complaint(
-        token=token,
-        user_id=user_id,
-        narrative=narrative,
-        narrative_clean=cleaned,
-        department_id=dept.id,
-        company_id=comp.id,
-        priority=priority,
-        status="open",
-        stage="Triage",
-        due_date=due_date,
-        is_escalated=False,
-        assigned_worker_id=assigned_worker_id,
-        transaction_date=transaction_date,
-        reference_id=reference_id,
-        amount=amount,
-        branch=branch,
-        service_type=service_type,
-        proof_file_path=proof_path,
-        validity_score=validity_score,
-        validity_decision=decision,
-        sbert_narrative_score=narrative_sbert_score,
-        proof_similarity_score=proof_similarity_score,
-        proof_extracted_text=proof_text[:1500] if proof_text else None,
-    )
-    session.add(new_complaint)
-    session.commit()
-
-    # Get worker display name
-    worker_obj = session.query(Worker).filter_by(worker_id=assigned_worker_id).first()
-    worker_display = worker_obj.name if worker_obj else assigned_worker_id
-
-    result = {
-        "token": token,
-        "department": dept.name,
-        "priority": priority,
-        "status": "open",
-        "stage": "Triage",
-        "assigned_worker": worker_display,
-        "due_date": due_date.isoformat(),
-        "validity_score": validity_score,
-        "decision": decision,
-        "sbert_score": narrative_sbert_score,
-        "proof_similarity": proof_similarity_score,
-    }
-    session.close()
-    return result
-
-@app.get("/user/complaints")
-def get_user_complaints(current_user: dict = Depends(get_current_user)):
-    session = Session()
-    refresh_sla_escalations(session)
-    
-    complaints = session.query(Complaint).filter_by(user_id=current_user["user_id"]).order_by(Complaint.created_at.desc()).all()
-    results = []
-    for c in complaints:
-        dept = session.query(Department).filter_by(id=c.department_id).first()
-        comp = session.query(Company).filter_by(id=c.company_id).first()
-        worker = session.query(Worker).filter_by(worker_id=c.assigned_worker_id).first()
-        results.append({
-            "token": c.token,
-            "department": dept.name if dept else "Triage",
-            "company": comp.name if comp else None,
-            "priority": c.priority,
-            "status": c.status,
-            "stage": c.stage or ("Resolved" if c.status == "resolved" else "Investigation"),
-            "is_escalated": bool(c.is_escalated),
-            "due_date": str(c.due_date) if c.due_date else None,
-            "sla_due_at": str(c.due_date) if c.due_date else None,
-            "assigned_worker": worker.name if worker else c.assigned_worker_id,
-            "created_at": str(c.created_at),
-            "resolved_at": str(c.resolved_at) if c.resolved_at else None,
-            "transaction_date": c.transaction_date,
-            "reference_id": c.reference_id,
-            "branch": c.branch,
-            "amount": c.amount,
-            "service_type": c.service_type,
-            "narrative": c.narrative,
-            "description": c.narrative,
-            "proof_file_path": c.proof_file_path,
-            "proof_url": c.proof_file_path,
-            "rejection_reason": c.rejection_reason,
-            "resolution_notes": c.resolution_notes,
-            "resolution_proof_url": c.resolution_proof_url,
-            "priority_reason": c.priority_reason,
-            "requires_more_proof": c.requires_more_proof,
-            "customer_appeal": c.customer_appeal,
-            "satisfaction_status": c.satisfaction_status,
-        })
-    session.close()
-    return results
-
-@app.get("/complaint/{token}")
-def get_complaint(token: str):
-    session = Session()
-    refresh_sla_escalations(session)
-    complaint = session.query(Complaint).filter_by(token=token).first()
-    if not complaint:
-        session.close()
-        raise HTTPException(status_code=404, detail="Complaint not found")
-
-    dept = session.query(Department).filter_by(id=complaint.department_id).first()
-    comp = session.query(Company).filter_by(id=complaint.company_id).first()
-    worker = session.query(Worker).filter_by(worker_id=complaint.assigned_worker_id).first()
-
-    result = {
-        "token": complaint.token,
-        "department": dept.name if dept else None,
-        "company": comp.name if comp else None,
-        "priority": complaint.priority,
-        "status": complaint.status,
-        "stage": complaint.stage or ("Resolved" if complaint.status == "resolved" else "Investigation"),
-        "is_escalated": bool(complaint.is_escalated),
-        "due_date": str(complaint.due_date) if complaint.due_date else None,
-        "sla_due_at": str(complaint.due_date) if complaint.due_date else None,
-        "assigned_worker": worker.name if worker else complaint.assigned_worker_id,
-        "assigned_worker_name": worker.name if worker else complaint.assigned_worker_id,
-        "assigned_worker_id": worker.employee_id if (worker and worker.employee_id) else (complaint.assigned_worker_id or "—"),
-        "created_at": str(complaint.created_at),
-        "transaction_date": complaint.transaction_date,
-        "reference_id": complaint.reference_id,
-        "amount": complaint.amount,
-        "branch": complaint.branch,
-        "service_type": complaint.service_type,
-        "proof_file_path": complaint.proof_file_path,
-        "proof_url": complaint.proof_file_path,
-        "narrative": complaint.narrative,
-        "description": complaint.narrative,
-        "sbert_score": complaint.sbert_narrative_score,
-        "proof_similarity": complaint.proof_similarity_score,
-        "rejection_reason": complaint.rejection_reason,
-        "resolution_notes": complaint.resolution_notes,
-        "resolution_proof_url": complaint.resolution_proof_url,
-        "priority_reason": complaint.priority_reason,
-        "requires_more_proof": complaint.requires_more_proof,
-        "customer_appeal": complaint.customer_appeal,
-        "satisfaction_status": complaint.satisfaction_status,
-    }
-    session.close()
-    return result
-
-@app.post("/complaint/{token}/appeal")
-def customer_appeal_or_satisfaction(token: str, appeal: CustomerAppealIn):
-    session = Session()
-    complaint = session.query(Complaint).filter_by(token=token).first()
-    if not complaint:
-        session.close()
-        raise HTTPException(status_code=404, detail="Complaint not found")
-
-    if appeal.is_satisfied:
-        complaint.satisfaction_status = "Satisfied"
-        complaint.status = "closed"
-        complaint.stage = "Closed"
-    else:
-        complaint.satisfaction_status = "Appealed / Dissatisfied"
-        complaint.customer_appeal = appeal.appeal_text
-        complaint.status = "in_progress"
-        complaint.stage = "Investigation"
-        # Notify worker
-        if complaint.assigned_worker_id:
-            try:
-                c_cursor = session.connection().connection.cursor()
-                c_cursor.execute("""
-                    INSERT INTO notifications (worker_id, complaint_token, title, message)
-                    VALUES (?, ?, ?, ?)
-                """, (complaint.assigned_worker_id, token, "Customer Escalated Appeal", f"Customer is dissatisfied with previous resolution: {appeal.appeal_text[:100]}"))
-            except Exception:
-                pass
-
-    session.commit()
-    session.close()
-    return {"message": "Status updated successfully", "token": token}
-
-@app.post("/complaint/{token}/evidence")
-def upload_additional_evidence(token: str, proof: UploadFile = File(...)):
-    session = Session()
-    complaint = session.query(Complaint).filter_by(token=token).first()
-    if not complaint:
-        session.close()
-        raise HTTPException(status_code=404, detail="Complaint not found")
-
-    ext = os.path.splitext(proof.filename)[1] or ".png"
-    safe_name = f"evidence_{token}_{uuid.uuid4().hex[:6]}{ext}"
-    full_path = os.path.join(UPLOAD_DIR, safe_name)
-    with open(full_path, "wb") as f:
-        f.write(proof.file.read())
-
-    complaint.proof_file_path = f"/uploads/{safe_name}"
-    complaint.requires_more_proof = None
-    complaint.status = "in_progress"
-    complaint.stage = "Investigation"
-    session.commit()
-    session.close()
-    return {"message": "Additional evidence successfully uploaded", "proof_file_path": f"/uploads/{safe_name}"}
-
-@app.post("/complaint/{token}/feedback")
-def submit_feedback(token: str, feedback: FeedbackIn):
-    session = Session()
-    complaint = session.query(Complaint).filter_by(token=token).first()
-    if not complaint:
-        session.close()
-        raise HTTPException(status_code=404, detail="Complaint not found")
-
-    existing = session.query(Feedback).filter_by(complaint_id=complaint.id).first()
-    if existing:
-        session.close()
-        raise HTTPException(status_code=400, detail="Feedback already submitted for this complaint")
-
-    fb = Feedback(complaint_id=complaint.id, rating=feedback.rating, comment=feedback.comment)
-    session.add(fb)
-
-    # User feedback closes the grievance resolution cycle
-    if complaint.status in ["resolved", "open", "in_progress"]:
-        complaint.status = "closed"
-        complaint.stage = "Closed"
-        if not complaint.resolved_at:
-            complaint.resolved_at = datetime.now()
-
-    session.commit()
-    session.close()
-    return {"message": "Feedback submitted and grievance marked Closed", "token": token}
-
-# --- Protected Admin Endpoints ---
-
-@app.get("/admin/complaints")
-def list_complaints(
-    department: str | None = None,
-    priority: str | None = None,
-    status: str | None = None,
-    company: str | None = None,
-    escalated_only: bool = False,
-    skip: int = 0,
-    limit: int = 100,
-    admin: str = Depends(verify_admin)
-):
-    session = Session()
-    refresh_sla_escalations(session)
-    query = session.query(Complaint)
-
-    if department:
-        dept = session.query(Department).filter_by(name=department).first()
-        if dept:
-            query = query.filter(Complaint.department_id == dept.id)
-    if priority:
-        query = query.filter(Complaint.priority == priority)
-    if status:
-        query = query.filter(Complaint.status == status)
-    if company and company.strip():
-        comp_sub = session.query(Company.id).filter(Company.name.ilike(f"%{company.strip()}%")).subquery()
-        query = query.filter(Complaint.company_id.in_(comp_sub))
-    if escalated_only:
-        query = query.filter(Complaint.is_escalated == True)
-
-    total_count = query.count()
-    complaints = query.order_by(Complaint.created_at.desc()).offset(skip).limit(limit).all()
-
-    result = []
-    for c in complaints:
-        dept = session.query(Department).filter_by(id=c.department_id).first()
-        comp = session.query(Company).filter_by(id=c.company_id).first()
-        worker = session.query(Worker).filter_by(worker_id=c.assigned_worker_id).first()
-        result.append({
-            "token": c.token,
-            "department": dept.name if dept else None,
-            "company": comp.name if comp else None,
-            "priority": c.priority,
-            "status": c.status,
-            "stage": c.stage or ("Resolved" if c.status == "resolved" else "Investigation"),
-            "is_escalated": bool(c.is_escalated),
-            "due_date": str(c.due_date) if c.due_date else None,
-            "sla_due_at": str(c.due_date) if c.due_date else None,
-            "assigned_worker": worker.name if worker else (c.assigned_worker_id or "Unassigned"),
-            "assigned_worker_name": worker.name if worker else (c.assigned_worker_id or "Unassigned"),
-            "assigned_worker_id": worker.employee_id if (worker and worker.employee_id) else (c.assigned_worker_id or "—"),
-            "created_at": str(c.created_at),
-            "resolved_at": str(c.resolved_at) if c.resolved_at else None,
-            "reference_id": c.reference_id,
-            "amount": c.amount,
-            "branch": c.branch,
-            "service_type": c.service_type,
-            "narrative": c.narrative,
-            "description": c.narrative,
-            "priority_reason": c.priority_reason,
-            "proof_file_path": c.proof_file_path,
-            "proof_url": c.proof_file_path,
-            "sbert_score": c.sbert_narrative_score,
-            "proof_similarity": c.proof_similarity_score,
-            "proof_extracted_text": c.proof_extracted_text,
-            "rejection_reason": c.rejection_reason,
-            "resolution_notes": c.resolution_notes,
-            "resolution_proof_url": c.resolution_proof_url,
-        })
-    session.close()
-    return {"total": total_count, "count": len(result), "skip": skip, "limit": limit, "complaints": result}
-
-@app.patch("/admin/complaint/{token}/status")
-def update_status(token: str, update: StatusUpdate, admin: str = Depends(verify_admin)):
-    valid_statuses = ["open", "in_progress", "resolved", "closed", "rejected"]
-    if update.status not in valid_statuses:
-        raise HTTPException(status_code=400, detail=f"Status must be one of {valid_statuses}")
-
-    session = Session()
-    complaint = session.query(Complaint).filter_by(token=token).first()
-    if not complaint:
-        session.close()
-        raise HTTPException(status_code=404, detail="Complaint not found")
-
-    old_status = complaint.status
-    complaint.status = update.status
-    if update.stage:
-        complaint.stage = update.stage
-    elif update.status in ["closed", "rejected"]:
-        complaint.stage = "Closed"
-    elif update.status == "resolved":
-        complaint.stage = "Resolved"
-    elif update.status == "in_progress":
-        complaint.stage = "Investigation"
-    elif update.status == "open":
-        complaint.stage = "Triage"
-
-    if update.status == "rejected":
-        complaint.rejection_reason = update.rejection_reason or "Complaint rejected due to non-matching transaction details or insufficient documentation."
-        complaint.resolved_at = datetime.now()
-    elif update.status in ["resolved", "closed"]:
-        if not complaint.resolved_at:
-            complaint.resolved_at = datetime.now()
-        if update.resolution_notes:
-            complaint.resolution_notes = update.resolution_notes
-        if update.resolution_proof_url:
-            complaint.resolution_proof_url = update.resolution_proof_url
-    else:
-        complaint.resolved_at = None
-
-    new_stage = complaint.stage
-
-    # Trigger alert notification to assigned employee if admin updates complaint
-    if complaint.assigned_worker_id:
-        try:
-            c_cursor = session.connection().connection.cursor()
-            c_cursor.execute("""
-                INSERT INTO notifications (worker_id, complaint_token, title, message)
-                VALUES (?, ?, ?, ?)
-            """, (
-                complaint.assigned_worker_id,
-                token,
-                "Admin Override Alert",
-                f"Administrator {admin} changed status of grievance {token} to '{update.status}' (Stage: {new_stage})"
-            ))
-        except Exception:
-            pass
-
-    session.commit()
-    session.close()
-    return {"token": token, "old_status": old_status, "new_status": update.status, "stage": new_stage}
-
-# --- Dedicated Employee Workspace Endpoints ---
-
-@app.get("/employee/complaints")
-def get_employee_complaints(
-    priority: str | None = None,
-    status: str | None = None,
-    emp: dict = Depends(verify_employee)
-):
-    session = Session()
-    refresh_sla_escalations(session)
-    worker_id = emp["worker_id"]
-
-    query = session.query(Complaint).filter(Complaint.assigned_worker_id == worker_id)
-    if priority:
-        query = query.filter(Complaint.priority == priority)
-    if status:
-        query = query.filter(Complaint.status == status)
-
-    complaints = query.order_by(Complaint.due_date.asc()).all()
-    results = []
-    for c in complaints:
-        dept = session.query(Department).filter_by(id=c.department_id).first()
-        comp = session.query(Company).filter_by(id=c.company_id).first()
-        results.append({
-            "token": c.token,
-            "company": comp.name if comp else None,
-            "department": dept.name if dept else None,
-            "priority": c.priority,
-            "priority_reason": c.priority_reason,
-            "status": c.status,
-            "stage": c.stage,
-            "due_date": str(c.due_date) if c.due_date else None,
-            "sla_due_at": str(c.due_date) if c.due_date else None,
-            "is_escalated": bool(c.is_escalated),
-            "created_at": str(c.created_at),
-            "transaction_date": c.transaction_date,
-            "reference_id": c.reference_id,
-            "amount": c.amount,
-            "branch": c.branch,
-            "service_type": c.service_type,
-            "narrative": c.narrative,
-            "description": c.narrative,
-            "proof_file_path": c.proof_file_path,
-            "proof_url": c.proof_file_path,
-            "sbert_score": c.sbert_narrative_score,
-            "proof_similarity": c.proof_similarity_score,
-            "proof_extracted_text": c.proof_extracted_text,
-            "rejection_reason": c.rejection_reason,
-            "resolution_notes": c.resolution_notes,
-            "resolution_proof_url": c.resolution_proof_url,
-            "requires_more_proof": c.requires_more_proof,
-            "customer_appeal": c.customer_appeal,
-            "satisfaction_status": c.satisfaction_status,
-        })
-    session.close()
-    return results
-
-@app.post("/employee/complaint/{token}/action")
-def employee_take_action(
-    token: str,
-    action: str = Form(...),  # "investigate", "resolve", "reject", "request_more_proof"
-    resolution_notes: str | None = Form(None),
-    rejection_reason: str | None = Form(None),
-    request_proof_reason: str | None = Form(None),
-    proof_doc: UploadFile | None = File(None),
-    emp: dict = Depends(verify_employee)
-):
-    session = Session()
-    complaint = session.query(Complaint).filter_by(token=token).first()
-    if not complaint:
-        session.close()
-        raise HTTPException(status_code=404, detail="Complaint not found")
-
-    if action == "investigate":
-        complaint.status = "in_progress"
-        complaint.stage = "Investigation"
-    elif action in ["request_proof", "request_more_proof"]:
-        complaint.status = "in_progress"
-        complaint.stage = "Investigation"
-        complaint.requires_more_proof = request_proof_reason or "Additional proof required (bank statement or legible transaction receipt)."
-    elif action == "reject":
-        complaint.status = "rejected"
-        complaint.stage = "Closed"
-        complaint.rejection_reason = rejection_reason or "Insufficient documentation or invalid core banking transaction reference."
-        complaint.resolved_at = datetime.now()
-    elif action == "resolve":
-        complaint.status = "resolved"
-        complaint.stage = "Resolved"
-        complaint.resolved_at = datetime.now()
-        complaint.resolution_notes = resolution_notes or "Transaction reconciled through core banking settlement switch."
-        if proof_doc:
-            ext = os.path.splitext(proof_doc.filename)[1] or ".txt"
-            safe_name = f"emp_resolution_{token}_{uuid.uuid4().hex[:6]}{ext}"
-            full_path = os.path.join(UPLOAD_DIR, safe_name)
-            with open(full_path, "wb") as f:
-                f.write(proof_doc.file.read())
-            complaint.resolution_proof_url = f"/uploads/{safe_name}"
-        else:
-            # Auto-generate certified text voucher
-            from bot_simulator import generate_resolution_proof
-            _, auto_url = generate_resolution_proof(token, complaint.reference_id)
-            complaint.resolution_proof_url = auto_url
-
-    session.commit()
-    new_status = complaint.status
-    session.close()
-    return {"message": f"Action '{action}' executed successfully on {token}", "status": new_status}
-
-@app.get("/employee/notifications")
-def get_employee_notifications(emp: dict = Depends(verify_employee)):
-    session = Session()
-    worker_id = emp["worker_id"]
-    try:
-        c_cursor = session.connection().connection.cursor()
-        c_cursor.execute("""
-            SELECT id, complaint_token, title, message, is_read, created_at
-            FROM notifications
-            WHERE worker_id = ?
-            ORDER BY id DESC LIMIT 20
-        """, (worker_id,))
-        rows = c_cursor.fetchall()
-        notifs = [{
-            "id": r[0],
-            "complaint_token": r[1],
-            "title": r[2],
-            "message": r[3],
-            "is_read": bool(r[4]),
-            "created_at": str(r[5])
-        } for r in rows]
-    except Exception:
-        notifs = []
-    session.close()
-    return notifs
-
-# --- Tab 2: Departments & Workers Stats ---
-@app.get("/admin/departments-workers")
-def get_departments_workers(admin: str = Depends(verify_admin)):
-    session = Session()
-    refresh_sla_escalations(session)
-    
-    target_departments = [
-        "Digital & UPI Banking",
-        "Loans & Advances",
-        "Cards & ATM Services",
-        "Account & Branch Operations",
-        "Fraud & Risk Management"
-    ]
-    
-    dept_records = session.query(Department).filter(Department.name.in_(target_departments)).all()
-    results = []
-
-    for dept in dept_records:
-        workers = session.query(Worker).filter_by(department_id=dept.id).all()
-        workers_data = []
-        for w in workers:
-            total_assigned = session.query(Complaint).filter_by(assigned_worker_id=w.worker_id).count()
-            resolved_count = session.query(Complaint).filter_by(assigned_worker_id=w.worker_id, status="resolved").count()
-            in_progress_count = session.query(Complaint).filter_by(assigned_worker_id=w.worker_id, status="in_progress").count()
-            open_count = session.query(Complaint).filter_by(assigned_worker_id=w.worker_id, status="open").count()
-            late_count = session.query(Complaint).filter(
-                Complaint.assigned_worker_id == w.worker_id,
-                Complaint.is_escalated == True
-            ).count()
-
-            workers_data.append({
-                "worker_id": w.worker_id,
-                "employee_id": w.employee_id,
-                "name": w.name,
-                "email": w.email,
-                "phone": w.phone,
-                "total": total_assigned,
-                "total_assigned": total_assigned,
-                "resolved": resolved_count,
-                "resolved_count": resolved_count,
-                "in_progress": in_progress_count,
-                "in_progress_count": in_progress_count,
-                "open": open_count,
-                "open_count": open_count,
-                "late_escalated": late_count,
-                "escalated_count": late_count,
-            })
-
-        dept_total = session.query(Complaint).filter_by(department_id=dept.id).count()
-        results.append({
-            "department_id": dept.id,
-            "department": dept.name,
-            "department_name": dept.name,
-            "total_complaints": dept_total,
-            "workers": workers_data
-        })
-
-    session.close()
-    return results
-
-# --- Tab 3: Existing Analytics Stats ---
-@app.get("/admin/stats")
-def get_stats(admin: str = Depends(verify_admin)):
-    session = Session()
-    refresh_sla_escalations(session)
-
-    total = session.query(Complaint).count()
-
-    status_counts = {}
-    for s in ["open", "in_progress", "resolved"]:
-        status_counts[s] = session.query(Complaint).filter(Complaint.status == s).count()
-
-    priority_counts = {}
-    for p in ["High", "Medium", "Low"]:
-        priority_counts[p] = session.query(Complaint).filter(Complaint.priority == p).count()
-
-    departments = session.query(Department).all()
-    department_breakdown = []
-    for dept in departments:
-        dept_total = session.query(Complaint).filter(Complaint.department_id == dept.id).count()
-        if dept_total == 0:
-            continue
-        dept_open = session.query(Complaint).filter(
-            Complaint.department_id == dept.id, Complaint.status == "open"
-        ).count()
-        dept_progress = session.query(Complaint).filter(
-            Complaint.department_id == dept.id, Complaint.status == "in_progress"
-        ).count()
-        dept_resolved = session.query(Complaint).filter(
-            Complaint.department_id == dept.id, Complaint.status == "resolved"
-        ).count()
-        department_breakdown.append({
-            "department": dept.name,
-            "total": dept_total,
-            "open": dept_open,
-            "in_progress": dept_progress,
-            "resolved": dept_resolved,
-        })
-
-    company_counts = (
-        session.query(Complaint.company_id, func.count(Complaint.id).label("total"))
-        .filter(Complaint.company_id.isnot(None))
-        .group_by(Complaint.company_id)
-        .order_by(func.count(Complaint.id).desc())
-        .limit(15)
-        .all()
-    )
-
-    company_breakdown = []
-    for company_id, comp_total in company_counts:
-        comp = session.query(Company).filter_by(id=company_id).first()
-        comp_resolved = session.query(Complaint).filter(
-            Complaint.company_id == company_id, Complaint.status == "resolved"
-        ).count()
-        company_breakdown.append({
-            "company": comp.name if comp else "Unknown",
-            "total": comp_total,
-            "resolved": comp_resolved,
-        })
-
-    all_feedback = session.query(Feedback).all()
-    feedback_count = len(all_feedback)
-    if feedback_count > 0:
-        avg_rating = sum(f.rating for f in all_feedback) / feedback_count
-        positive_count = sum(1 for f in all_feedback if f.rating >= 4)
-        positive_percentage = round((positive_count / feedback_count) * 100, 1)
-    else:
-        avg_rating = None
-        positive_percentage = None
-
-    # Form feedback rating breakdown 1 to 5
-    rating_counts = {r: 0 for r in range(1, 6)}
-    for f in all_feedback:
-        if 1 <= f.rating <= 5:
-            rating_counts[f.rating] += 1
-    feedback_ratings = [{"rating": r, "count": count} for r, count in rating_counts.items()]
-
-    company_counts_list = [{"company": c["company"], "count": c["total"]} for c in company_breakdown]
-
-    escalated_count = session.query(Complaint).filter_by(is_escalated=True).count()
-    session.close()
-
-    return {
-        "total": total,
-        "total_complaints": total,
-        "open_count": status_counts.get("open", 0),
-        "in_progress_count": status_counts.get("in_progress", 0),
-        "resolved_count": status_counts.get("resolved", 0),
-        "escalated_count": escalated_count,
-        "status_counts": status_counts,
-        "priority_counts": priority_counts,
-        "department_breakdown": department_breakdown,
-        "dept_status_counts": department_breakdown,
-        "company_breakdown": company_breakdown,
-        "company_counts": company_counts_list,
-        "feedback_ratings": feedback_ratings,
-        "feedback_count": feedback_count,
-        "avg_rating": round(avg_rating, 2) if avg_rating is not None else None,
-        "positive_percentage": positive_percentage,
-    }
-
-# --- Tab 4: Bank Leaderboard ---
-@app.get("/admin/leaderboard")
-def get_bank_leaderboard(timeframe: str = "yearly", admin: str = Depends(verify_admin)):
-    """
-    Computes live rankings of banks/companies by performance:
-    - Faster resolution rate
-    - Fewer SLA breaches
-    - Timeframe: monthly (last 30d), quarterly (last 90d), yearly (last 365d) / all
-    """
-    session = Session()
-    refresh_sla_escalations(session)
-    
-    now = datetime.now()
-    if timeframe == "monthly":
-        start_date = now - timedelta(days=30)
-    elif timeframe == "quarterly":
-        start_date = now - timedelta(days=90)
-    else:
-        start_date = now - timedelta(days=365)
-
-    # Query aggregated stats only for companies that actually have complaints in the timeframe
-    # Executes in a fraction of a second using a single grouped aggregation query
-    stats_query = (
-        session.query(
-            Complaint.company_id,
-            func.count(Complaint.id).label("total"),
-            func.sum(case((Complaint.status.in_(["resolved", "closed"]), 1), else_=0)).label("resolved"),
-            func.sum(case((Complaint.is_escalated == True, 1), else_=0)).label("breached")
-        )
-        .filter(Complaint.company_id.isnot(None))
-        .filter(Complaint.created_at >= start_date)
-        .group_by(Complaint.company_id)
-        .having(func.count(Complaint.id) > 0)
-        .all()
-    )
-
-    # Fetch company names in bulk
-    comp_ids = [row[0] for row in stats_query]
-    companies = session.query(Company).filter(Company.id.in_(comp_ids)).all() if comp_ids else []
-    company_name_map = {c.id: c.name for c in companies}
-
-    leaderboard = []
-    for comp_id, total, resolved, breached in stats_query:
-        resolved = resolved or 0
-        breached = breached or 0
-        total = total or 1
-
-        resolution_rate = (resolved / total) * 100
-        breach_rate = (breached / total) * 100
-
-        # Authentic BFSI Grievance Index formula:
-        # 1. Base Resolution Efficiency (50% weight): (resolved / total) * 50
-        # 2. SLA Timeliness Factor (35% weight): (1 - breached / total) * 35
-        # 3. Volume Confidence Factor (15% weight): logarithmic dampener so 1 complaint cannot score 100
-        import math
-        volume_confidence = min(15.0, math.log10(max(1, total) + 1) * 7.5)
-        
-        # Penalize unresolved backlog
-        backlog_penalty = min(15.0, ((total - resolved) / total) * 10.0)
-
-        raw_score = (resolution_rate * 0.50) + ((100.0 - breach_rate) * 0.35 * 0.5) + volume_confidence - backlog_penalty
-        perf_score = max(38.0, min(97.5, round(raw_score, 1)))
-
-        comp_name = company_name_map.get(comp_id, f"Institution #{comp_id}")
-        leaderboard.append({
-            "bank_id": comp_id,
-            "bank_name": comp_name,
-            "company": comp_name,
-            "total_complaints": total,
-            "resolved_complaints": resolved,
-            "resolved_count": resolved,
-            "breached_complaints": breached,
-            "escalated_count": breached,
-            "resolution_rate": round(resolution_rate, 1),
-            "breach_rate": round(breach_rate, 1),
-            "performance_score": perf_score,
-            "score": perf_score,
-            "avg_rating": round(3.0 + (perf_score / 100.0) * 1.9, 1)
-        })
-
-    # Sort primarily by realistic performance score descending, then by total complaints volume
-    leaderboard.sort(key=lambda x: (x["performance_score"], x["total_complaints"]), reverse=True)
-
-    # Assign ranks
-    for rank, entry in enumerate(leaderboard, start=1):
-        entry["rank"] = rank
-
-    session.close()
-    return {"timeframe": timeframe, "leaderboard": leaderboard[:25]}
-
-# --- Tab 5: AI Grievance Clustering & Trend Analysis ---
-@app.get("/admin/complaint-clusters")
-def get_complaint_clusters(admin: str = Depends(verify_admin)):
-    """
-    Groups and separates out similar types of complaints together:
-    - Analyzes high-frequency complaint patterns (Fraud rings, UPI timeouts, Unauthorized ATM debits, KYC lockouts)
-    - Computes early threat scores and recommended early interventions
-    """
-    session = Session()
-
-    cluster_definitions = [
-        {
-            "id": "CLUSTER-FRD-01",
-            "title": "Phishing & Unauthorized UPI Debits",
-            "category": "Fraud & Risk",
-            "keywords": ["unauthorized", "upi", "scam", "otp", "phishing", "hacked", "stolen"],
-            "severity": "CRITICAL",
-            "mitigation_action": "Enable proactive velocity checks on high-value UPI VPA handles and enforce mandatory step-up SMS OTP alerts."
-        },
-        {
-            "id": "CLUSTER-ATM-02",
-            "title": "ATM Cash Retract & Dispense Failures",
-            "category": "Cards & ATM Services",
-            "keywords": ["atm", "dispensed", "cash", "debited but not received", "card blocked"],
-            "severity": "HIGH",
-            "mitigation_action": "Initiate automated Switch RRN verification and expedite auto-reversal ledger crediting within 24 hours per RBI mandates."
-        },
-        {
-            "id": "CLUSTER-LND-03",
-            "title": "Spurious CIBIL Score Reporting & Hidden EMI Penalties",
-            "category": "Loans & Advances",
-            "keywords": ["credit score", "cibil", "emi", "interest", "overcharged", "foreclosure", "harassment"],
-            "severity": "MEDIUM",
-            "mitigation_action": "Audit recovery vendor collection agencies and mandate automated dispute reconciliation API with credit bureaus."
-        },
-        {
-            "id": "CLUSTER-ACC-04",
-            "title": "Account Freeze & Re-KYC Friction",
-            "category": "Account Operations",
-            "keywords": ["kyc", "freeze", "branch", "blocked account", "pan card", "aadhaar", "dormant"],
-            "severity": "LOW",
-            "mitigation_action": "Deploy instant Video-KYC self-service workflows to unblock operational accounts without branch visit."
-        },
-        {
-            "id": "CLUSTER-UPI-05",
-            "title": "UPI Server Timeout & Unreversed Settlement Loops",
-            "category": "Digital Payments",
-            "keywords": ["timeout", "server", "pending", "debited", "reversal", "npcí", "upi transfer failed"],
-            "severity": "CRITICAL",
-            "mitigation_action": "AI Core Action: Integrate real-time NPCI Auto-Reversal Webhooks (UPMS). Force credit to sender within T+1 hour and credit penalty compensation per RBI Master Directions."
-        },
-        {
-            "id": "CLUSTER-POS-06",
-            "title": "POS Merchant Double Debits & Unsettled Chargebacks",
-            "category": "Cards & Merchant POS",
-            "keywords": ["charge", "double debited", "swipe", "merchant", "pos", "refund", "receipt"],
-            "severity": "HIGH",
-            "mitigation_action": "AI Core Action: Deploy automated ISO-8583 payment gateway transaction reconciliation bots to detect duplicate RRNs and execute automated shadow refund credits within 12 hours."
-        }
-    ]
-
-    total_count = session.query(Complaint).count() or 1
-    analyzed_clusters = []
-
-    for c_def in cluster_definitions:
-        # Build filter containing keywords
-        filters = [Complaint.narrative.ilike(f"%{kw}%") for kw in c_def["keywords"]]
-        matched_count = session.query(Complaint).filter(or_(*filters)).count()
-        escalated_count = session.query(Complaint).filter(or_(*filters), Complaint.is_escalated == True).count()
-
-        percentage = round((matched_count / total_count) * 100, 1)
-
-        # Fetch sample complaints for this cluster
-        samples = [
-            c.narrative[:160] + "..."
-            for c in session.query(Complaint).filter(or_(*filters)).limit(2).all()
-        ]
-
-        analyzed_clusters.append({
-            "cluster_id": c_def["id"],
-            "cluster_title": c_def["title"],
-            "label": c_def["title"],
-            "category": c_def["category"],
-            "matched_volume": matched_count,
-            "count": matched_count,
-            "share_percentage": percentage,
-            "escalated_count": escalated_count,
-            "severity": c_def["severity"],
-            "top_keywords": c_def["keywords"][:4],
-            "sample_complaints": samples,
-            "recommended_action": c_def["mitigation_action"]
-        })
-
-    session.close()
-    return {"total_analyzed": total_count, "clusters": analyzed_clusters}
-
-
-# ── WHAT-IF SIMULATION ENDPOINTS ─────────────────────────────────────
-class SimulationRequest(BaseModel):
-    bank_id: int | None = None
-    bank_name: str | None = None
-    department_id: int | None = None
-    department_name: str | None = None
-    additional_workers: int = 0
-    volume_change_pct: float = 0.0  # e.g., +20 for +20%, -15 for -15%
-
-@app.get("/admin/simulation/options")
-def get_simulation_options(user: dict = Depends(get_current_user)):
-    if user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Admin authorization required.")
-
-    session = Session()
-    try:
-        # Fetch active departments (those with workers or complaints)
-        depts = session.query(Department).all()
-        dept_options = []
-        for d in depts:
-            w_count = session.query(Worker).filter_by(department_id=d.id, is_active=True).count()
-            c_count = session.query(Complaint).filter_by(department_id=d.id).count()
-            if w_count > 0 or c_count > 0:
-                dept_options.append({
-                    "id": d.id,
-                    "name": d.name,
-                    "worker_count": w_count,
-                    "complaint_count": c_count
-                })
-
-        # Fetch top banks with complaints
-        top_banks = session.query(
-            Company.id,
-            Company.name,
-            func.count(Complaint.id).label("total")
-        ).join(Complaint, Company.id == Complaint.company_id)\
-         .group_by(Company.id, Company.name)\
-         .order_by(func.count(Complaint.id).desc())\
-         .limit(30)\
-         .all()
-
-        bank_options = [
-            {"id": b.id, "name": b.name, "complaint_count": b.total}
-            for b in top_banks
-        ]
-
-        return {
-            "departments": sorted(dept_options, key=lambda x: x["complaint_count"], reverse=True),
-            "banks": bank_options
-        }
-    finally:
-        session.close()
-
-
-@app.post("/admin/simulation/run")
-def run_what_if_simulation(req: SimulationRequest, user: dict = Depends(get_current_user)):
-    if user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Admin authorization required.")
-
-    session = Session()
-    try:
-        # Resolve department
-        dept = None
-        if req.department_id:
-            dept = session.query(Department).filter_by(id=req.department_id).first()
-        elif req.department_name and req.department_name != "All Departments":
-            dept = session.query(Department).filter_by(name=req.department_name).first()
-
-        # Resolve bank
-        bank = None
-        if req.bank_id:
-            bank = session.query(Company).filter_by(id=req.bank_id).first()
-        elif req.bank_name and req.bank_name != "All Banks":
-            bank = session.query(Company).filter_by(name=req.bank_name).first()
-
-        # Build complaint filters
-        filters = []
-        if dept:
-            filters.append(Complaint.department_id == dept.id)
-        if bank:
-            filters.append(Complaint.company_id == bank.id)
-
-        # Baseline metrics from operational database
-        total_complaints = session.query(Complaint).filter(*filters).count()
-        pending_complaints = session.query(Complaint).filter(
-            *filters,
-            Complaint.status.in_(["open", "in_progress"])
-        ).count()
-        resolved_complaints = session.query(Complaint).filter(
-            *filters,
-            Complaint.status == "resolved"
-        ).count()
-        breached_complaints = session.query(Complaint).filter(
-            *filters,
-            Complaint.is_escalated == True
-        ).count()
-
-        # Department worker capacity baseline
-        if dept:
-            current_workers = session.query(Worker).filter_by(department_id=dept.id, is_active=True).count()
-        else:
-            current_workers = session.query(Worker).filter_by(is_active=True).count()
-
-        current_workers = max(1, current_workers)
-
-        # Historical baseline resolution velocity (complaints resolved per worker)
-        # Using active officer ratio or standard baseline
-        worker_resolution_capacity = max(15, round(resolved_complaints / max(1, current_workers), 1))
-
-        # Baseline Turnaround Time (TAT) in hours based on historical average & priority weighting
-        # Average TAT: 38 hours base + backlog friction
-        base_tat_hours = 36.0 + (pending_complaints / max(1, current_workers)) * 1.8
-        base_tat_days = round(base_tat_hours / 24.0, 1)
-
-        # Baseline SLA Breach Risk (%)
-        base_breach_rate = round((breached_complaints / max(1, total_complaints)) * 100, 1)
-
-        # --- SIMULATION CALCULATIONS ---
-        additional_w = max(-current_workers + 1, req.additional_workers)
-        simulated_workers = max(1, current_workers + additional_w)
-        volume_multiplier = 1.0 + (req.volume_change_pct / 100.0)
-
-        # Simulated complaint volume
-        simulated_complaints = max(0, int(round(total_complaints * volume_multiplier)))
-        simulated_pending = max(0, int(round(pending_complaints * volume_multiplier)))
-
-        # Workload factor: ratio of simulated workload to workforce capacity change
-        worker_scale_ratio = simulated_workers / current_workers
-        capacity_ratio = volume_multiplier / worker_scale_ratio
-
-        # Simulated Turnaround Time: scaled by capacity stress/relief
-        simulated_tat_hours = base_tat_hours * capacity_ratio
-        simulated_tat_days = round(max(0.8, simulated_tat_hours / 24.0), 1)
-        tat_change_pct = round(((simulated_tat_days - base_tat_days) / max(0.1, base_tat_days)) * 100, 1)
-
-        # Simulated SLA Risk (%):
-        # Starts from base breach rate, adjusts non-linearly with workload density
-        if capacity_ratio <= 1.0:
-            simulated_risk = max(1.2, base_breach_rate * (capacity_ratio ** 1.3))
-        else:
-            simulated_risk = min(98.5, base_breach_rate * (capacity_ratio ** 1.6))
-        simulated_risk = round(simulated_risk, 1)
-        risk_change_pct = round(simulated_risk - base_breach_rate, 1)
-
-        # Workload per officer
-        current_workload_per_worker = round(pending_complaints / current_workers, 1)
-        simulated_workload_per_worker = round(simulated_pending / simulated_workers, 1)
-
-        # Status health indicator
-        if simulated_risk < 5.0 and simulated_tat_days <= 3.0:
-            health_status = "Optimal"
-            health_color = "#059669"
-        elif simulated_risk < 15.0:
-            health_status = "Manageable"
-            health_color = "#2563eb"
-        elif simulated_risk < 30.0:
-            health_status = "At Risk"
-            health_color = "#d97706"
-        else:
-            health_status = "Critical SLA Breach Risk"
-            health_color = "#e11d48"
-
-        # Construct comparative chart breakdown
-        comparison_breakdown = [
-            {"metric": "Complaint Volume", "current": total_complaints, "simulated": simulated_complaints, "unit": "cases"},
-            {"metric": "Pending Queue", "current": pending_complaints, "simulated": simulated_pending, "unit": "cases"},
-            {"metric": "Active Officers", "current": current_workers, "simulated": simulated_workers, "unit": "staff"},
-            {"metric": "Queue per Officer", "current": current_workload_per_worker, "simulated": simulated_workload_per_worker, "unit": "cases/officer"},
-            {"metric": "Estimated TAT", "current": base_tat_days, "simulated": simulated_tat_days, "unit": "days"},
-            {"metric": "SLA Breach Risk", "current": base_breach_rate, "simulated": simulated_risk, "unit": "%"}
-        ]
-
-        # Recommendation message
-        if additional_w > 0 and req.volume_change_pct > 0:
-            impact_summary = f"Deploying {additional_w} additional officer(s) counterbalances a {req.volume_change_pct}% volume surge, holding turnaround time near {simulated_tat_days} days."
-        elif additional_w > 0:
-            impact_summary = f"Adding {additional_w} officer(s) reduces turnaround time by {abs(tat_change_pct)}% and lowers SLA breach risk by {abs(risk_change_pct)}%."
-        elif req.volume_change_pct > 0:
-            impact_summary = f"A {req.volume_change_pct}% complaint increase without extra staff elevates queue density by {round((simulated_workload_per_worker - current_workload_per_worker), 1)} cases per officer."
-        else:
-            impact_summary = f"A {abs(req.volume_change_pct)}% decrease in complaint intake alleviates backlog, reducing SLA risk to {simulated_risk}%."
-
-        return {
-            "disclaimer": "Simulated estimates are calculated from live operational caseloads and empirical capacity models. Results are indicative projections for operational planning, not guaranteed SLA commitments.",
-            "selected_bank": bank.name if bank else "All Regulated Banks",
-            "selected_department": dept.name if dept else "All Operational Departments",
-            "inputs": {
-                "additional_workers": req.additional_workers,
-                "volume_change_pct": req.volume_change_pct
-            },
-            "current_metrics": {
-                "worker_count": current_workers,
-                "complaint_volume": total_complaints,
-                "pending_complaints": pending_complaints,
-                "resolved_complaints": resolved_complaints,
-                "workload_per_worker": current_workload_per_worker,
-                "estimated_tat_days": base_tat_days,
-                "sla_risk_pct": base_breach_rate
-            },
-            "simulated_metrics": {
-                "worker_count": simulated_workers,
-                "complaint_volume": simulated_complaints,
-                "pending_complaints": simulated_pending,
-                "workload_per_worker": simulated_workload_per_worker,
-                "estimated_tat_days": simulated_tat_days,
-                "sla_risk_pct": simulated_risk,
-                "tat_change_pct": tat_change_pct,
-                "risk_change_pct": risk_change_pct,
-                "health_status": health_status,
-                "health_color": health_color
-            },
-            "comparison_breakdown": comparison_breakdown,
-            "impact_summary": impact_summary
-        }
-    finally:
-        session.close()
