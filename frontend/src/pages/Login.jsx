@@ -104,18 +104,14 @@ export default function Login() {
         full_name: fullName.trim() || undefined,
       });
 
-      setSuccessMsg(lang === 'hi' ? 'खाता बन गया! लॉगिन किया जा रहा है...' : 'Account created! Signing you in...');
-      const formData = new URLSearchParams();
-      formData.append('username', email.trim().toLowerCase());
-      formData.append('password', password);
-
-      const loginRes = await axios.post('/api/auth/login', formData, {
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-      });
-
-      localStorage.setItem('grievanceiq_token', loginRes.data.access_token);
-      localStorage.setItem('grievanceiq_user', JSON.stringify(loginRes.data.user));
-      navigate('/submit');
+      setSuccessMsg(
+        lang === 'hi' ? 'खाता सफलतापूर्वक बनाया गया! कृपया लॉगिन करें।' :
+        lang === 'mr' ? 'खाते यशस्वीरित्या तयार केले! कृपया लॉगिन करा.' :
+        'Account created successfully! Please log in with your credentials.'
+      );
+      setCustomerMode('login');
+      setPassword('');
+      setConfirmPassword('');
     } catch (err) {
       setErrorMsg(err.response?.data?.detail || (lang === 'hi' ? 'पंजीकरण विफल। यह ईमेल पहले से पंजीकृत हो सकता है।' : 'Registration failed. Email may already be registered.'));
     } finally {

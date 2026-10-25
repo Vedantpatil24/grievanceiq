@@ -54,6 +54,10 @@ export default function AdminDashboard() {
   const [resModeFilter, setResModeFilter] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
 
+  // AI Performance State
+  const [aiPerfData, setAiPerfData] = useState(null);
+  const [aiPerfLoading, setAiPerfLoading] = useState(false);
+
   // Selected Complaint for Modal Actions
   const [selectedComplaint, setSelectedComplaint] = useState(null);
   const [modalTab, setModalTab] = useState('resolve'); // 'resolve', 'evidence', 'notes'
@@ -184,6 +188,13 @@ export default function AdminDashboard() {
     if (tab === 'analytics') {
       axios.get('/api/analytics/overview').then(r => setKpis(r.data));
       axios.get('/api/analytics/trends').then(r => setTrends(r.data));
+    }
+    if (tab === 'nova') {
+      setAiPerfLoading(true);
+      axios.get('/api/analytics/ai-performance')
+        .then(r => setAiPerfData(r.data))
+        .catch(err => console.error('Error fetching AI performance:', err))
+        .finally(() => setAiPerfLoading(false));
     }
   };
 
@@ -1382,7 +1393,7 @@ export default function AdminDashboard() {
                         File on record: <code>{selectedComplaint.proof_file_path.split('\\').pop().split('/').pop()}</code>
                       </div>
                       <a 
-                        href={`http://localhost:8000/uploads/${selectedComplaint.proof_file_path.split('\\').pop().split('/').pop()}`}
+                        href={`http://localhost:8000/api/complaints/${selectedComplaint.token}/document`}
                         target="_blank" 
                         rel="noreferrer"
                         className="btn btn-outline"

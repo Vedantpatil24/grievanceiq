@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { ShieldCheck, Search, LogIn, LogOut, LayoutDashboard, FileText, History, Briefcase, Building2, Globe } from 'lucide-react';
+import { ShieldCheck, Search, LogIn, LogOut, LayoutDashboard, FileText, History, Briefcase, Building2, Globe, Bell } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 
 export default function Navbar() {
@@ -11,6 +11,23 @@ export default function Navbar() {
   const userStr = localStorage.getItem('grievanceiq_user');
   const user = userStr ? JSON.parse(userStr) : null;
   const role = (user?.role || '').toUpperCase();
+  const [notifCount, setNotifCount] = React.useState(0);
+  const [showNotifMenu, setShowNotifMenu] = React.useState(false);
+  const [notifications, setNotifications] = React.useState([]);
+
+  React.useEffect(() => {
+    if (token) {
+      fetch('http://localhost:8000/api/notifications?recipient_type=customer')
+        .then(r => r.json())
+        .then(data => {
+          if (Array.isArray(data)) {
+            setNotifications(data.slice(0, 5));
+            setNotifCount(data.length);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [token, location.pathname]);
   const isAdmin = role === 'ADMIN';
   const isOfficer = role === 'OFFICER' || role === 'STAFF';
   const isCustomer = role === 'CUSTOMER';
@@ -94,6 +111,44 @@ export default function Navbar() {
             <option value="gu" style={{ background: '#0f172a', color: '#fff' }}>ગુજરાતી (Gujarati)</option>
           </select>
         </div>
+
+                {/* User Notifications */}
+        {token && (
+          <div style={{ position: 'relative', marginLeft: '8px' }}>
+            <button 
+              onClick={() => setShowNotifMenu(!showNotifMenu)}
+              style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '6px', padding: '6px 10px', color: '#f8fafc', cursor: 'pointer', display: 'flex', alignItems: 'center', position: 'relative' }}
+              title="Notifications"
+            >
+              <Bell size={16} />
+              {notifCount > 0 && (
+                <span style={{ position: 'absolute', top: '-4px', right: '-4px', background: '#ef4444', color: '#fff', fontSize: '0.65rem', fontWeight: '800', width: '16px', height: '16px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {notifCount}
+                </span>
+              )}
+            </button>
+            {showNotifMenu && (
+              <div style={{ position: 'absolute', right: 0, top: '38px', width: '320px', background: '#0f172a', border: '1px solid #334155', borderRadius: '8px', boxShadow: '0 10px 25px rgba(0,0,0,0.5)', zIndex: 1000, padding: '12px' }}>
+                <div style={{ fontWeight: '700', fontSize: '0.85rem', color: '#f8fafc', borderBottom: '1px solid #1e293b', paddingBottom: '8px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>🔔 Grievance Notifications</span>
+                  <span style={{ fontSize: '0.7rem', color: '#38bdf8' }}>{notifCount} Updates</span>
+                </div>
+                {notifications.length === 0 ? (
+                  <div style={{ fontSize: '0.8rem', color: '#94a3b8', textAlign: 'center', padding: '12px 0' }}>No new notifications</div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '240px', overflowY: 'auto' }}>
+                    {notifications.map((n, idx) => (
+                      <div key={idx} style={{ background: '#1e293b', padding: '8px 10px', borderRadius: '6px', fontSize: '0.78rem', color: '#e2e8f0', borderLeft: '3px solid #10b981' }}>
+                        <div style={{ fontWeight: '700', color: '#10b981', marginBottom: '2px' }}>{n.title || 'Resolution Update'}</div>
+                        <div style={{ fontSize: '0.75rem', color: '#cbd5e1' }}>{n.message || n.details || 'Complaint status updated.'}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {token ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginLeft: '10px', borderLeft: '1px solid #334155', paddingLeft: '14px' }}>

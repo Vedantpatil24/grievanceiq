@@ -1620,8 +1620,7 @@ async def ai_evidence_analysis(
     ocr_extracted = False
     try:
         from ocr_service import extract_text_from_file
-        import os
-        full_path = os.path.join("uploads", os.path.basename(proof_path)) if not os.path.isabs(proof_path) else proof_path
+        full_path = file_path
         if os.path.exists(full_path):
             ocr_text = extract_text_from_file(full_path) or ""
             ocr_extracted = bool(ocr_text.strip())
@@ -2207,3 +2206,43 @@ def root():
         "version": "2.0.0"
     }
 
+
+
+@app.get("/api/complaints/{token}/document")
+def get_complaint_document(token: str, db: Session = Depends(get_db)):
+    """
+    Stream or view the actual uploaded evidence document or sample proof for any complaint.
+    """
+    complaint = db.query(Complaint).filter(Complaint.token == token).first()
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+    
+    file_path = complaint.proof_file_path or getattr(complaint, 'proof_path', None)
+    if not file_path:
+        raise HTTPException(status_code=404, detail="No document attached to this complaint.")
+    
+    # Resolve relative paths and sample paths
+    bn = os.path.basename(file_path)
+    candidates = [
+        file_path,
+        os.path.join(UPLOAD_DIR, bn),
+        os.path.join(BASE_DIR, "uploads", "samples", bn),
+        os.path.join(BASE_DIR, "uploads", bn)
+    ]
+    resolved_path = None
+    for cand in candidates:
+        if os.path.exists(cand):
+            resolved_path = cand
+            break
+            
+    if not resolved_path or not os.path.exists(resolved_path):
+        raise HTTPException(status_code=404, detail="Document file not found on server storage.")
+    
+    from fastapi.responses import FileResponse
+    media_type = "text/plain"
+    if bn.lower().endswith(".pdf"):
+        media_type = "application/pdf"
+    elif bn.lower().endswith((".png", ".jpg", ".jpeg")):
+        media_type = "image/jpeg"
+        
+    return FileResponse(resolved_path, media_type=media_type, filename=bn)

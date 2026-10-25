@@ -513,7 +513,7 @@ export default function EmployeeDashboard() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                         {selectedComplaint.proof_file_path ? (
                           <>
-                            <a href={`/uploads/${selectedComplaint.proof_file_path.split('/').pop()}`} target="_blank" rel="noreferrer"
+                            <a href={`http://localhost:8000/api/complaints/${selectedComplaint.token}/document`} target="_blank" rel="noreferrer"
                               style={{ fontSize: '0.8rem', color: '#1e40af', textDecoration: 'underline', display: 'flex', alignItems: 'center', gap: '4px' }}>
                               <FileText size={14} /> {t('officer_view_doc')}
                             </a>
@@ -704,32 +704,88 @@ export default function EmployeeDashboard() {
                           />
                         </div>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
-                          <div>
-                            <label style={{ display: 'block', fontWeight: '600', fontSize: '0.82rem', color: '#374151', marginBottom: '4px' }}>{t('officer_res_ref')}</label>
-                            <input type="text" value={resolutionForm.transaction_reference} onChange={e => setResolutionForm({ ...resolutionForm, transaction_reference: e.target.value })}
-                              placeholder="e.g. REFUND-TXN-20261011"
-                              style={{ width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.82rem', boxSizing: 'border-box' }} />
+                        {/* DYNAMIC FORM CONTEXT: Card Blocking & Security Operations vs Monetary Refund */}
+                        {resolutionForm.resolution_type === 'CARD_BLOCKED_REPLACED' || (selectedComplaint?.service_type || '').toLowerCase().includes('card') && !resolutionForm.resolution_type.includes('REFUND') ? (
+                          <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '14px', marginBottom: '16px' }}>
+                            <div style={{ fontWeight: '700', fontSize: '0.85rem', color: '#166534', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span>🛡️ Emergency Card Security & Action Dispatch</span>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '8px' }}>
+                              <div>
+                                <label style={{ display: 'block', fontWeight: '600', fontSize: '0.8rem', color: '#374151', marginBottom: '4px' }}>
+                                  Switch Blocking Auth Code / Hotlist Ref *
+                                </label>
+                                <input type="text" value={resolutionForm.transaction_reference} onChange={e => setResolutionForm({ ...resolutionForm, transaction_reference: e.target.value })}
+                                  placeholder="e.g. BLK-SWITCH-HOST-98214"
+                                  style={{ width: '100%', padding: '8px 10px', border: '1px solid #86efac', borderRadius: '6px', fontSize: '0.82rem', boxSizing: 'border-box' }} />
+                              </div>
+                              <div>
+                                <label style={{ display: 'block', fontWeight: '600', fontSize: '0.8rem', color: '#374151', marginBottom: '4px' }}>
+                                  Replacement Card Courier Tracking No
+                                </label>
+                                <input type="text" placeholder="e.g. BLUEDART-AWB-440192"
+                                  style={{ width: '100%', padding: '8px 10px', border: '1px solid #86efac', borderRadius: '6px', fontSize: '0.82rem', boxSizing: 'border-box' }} />
+                              </div>
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: '#15803d', marginTop: '4px' }}>
+                              ✅ Payment / Refund amount is not applicable for Card Deactivation. Host switch will instantly hotlist card globally across ATM, POS, and E-Commerce channels.
+                            </div>
                           </div>
-                          <div>
-                            <label style={{ display: 'block', fontWeight: '600', fontSize: '0.82rem', color: '#374151', marginBottom: '4px' }}>{t('officer_res_amount')}</label>
-                            <input type="number" value={resolutionForm.resolved_amount} onChange={e => setResolutionForm({ ...resolutionForm, resolved_amount: e.target.value })}
-                              placeholder="0.00"
-                              style={{ width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.82rem', boxSizing: 'border-box' }} />
+                        ) : resolutionForm.resolution_type === 'KYC_UPDATED' || resolutionForm.resolution_type === 'LOAN_NOC_ISSUED' || resolutionForm.resolution_type === 'CIBIL_RECTIFICATION' ? (
+                          <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '14px', marginBottom: '16px' }}>
+                            <div style={{ fontWeight: '700', fontSize: '0.85rem', color: '#1e3a8a', marginBottom: '10px' }}>
+                              📋 Administrative Service Fulfillment
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                              <div>
+                                <label style={{ display: 'block', fontWeight: '600', fontSize: '0.8rem', color: '#374151', marginBottom: '4px' }}>
+                                  Administrative Reference / NOC Serial No
+                                </label>
+                                <input type="text" value={resolutionForm.transaction_reference} onChange={e => setResolutionForm({ ...resolutionForm, transaction_reference: e.target.value })}
+                                  placeholder="e.g. NOC-LN-2026-98124"
+                                  style={{ width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.82rem', boxSizing: 'border-box' }} />
+                              </div>
+                              <div>
+                                <label style={{ display: 'block', fontWeight: '600', fontSize: '0.8rem', color: '#374151', marginBottom: '4px' }}>
+                                  Upload Fulfillment Certificate (PDF / NOC)
+                                </label>
+                                <input type="file" accept=".pdf,.jpg,.jpeg,.png,.txt"
+                                  onChange={e => setResolutionFile(e.target.files?.[0] || null)}
+                                  style={{ width: '100%', padding: '6px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.82rem' }} />
+                              </div>
+                            </div>
                           </div>
-                        </div>
+                        ) : (
+                          /* Monetary Refund Form (UPI, ATM Failure, Duplicate Charges) */
+                          <>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                              <div>
+                                <label style={{ display: 'block', fontWeight: '600', fontSize: '0.82rem', color: '#374151', marginBottom: '4px' }}>{t('officer_res_ref')}</label>
+                                <input type="text" value={resolutionForm.transaction_reference} onChange={e => setResolutionForm({ ...resolutionForm, transaction_reference: e.target.value })}
+                                  placeholder="e.g. REFUND-TXN-20261011"
+                                  style={{ width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.82rem', boxSizing: 'border-box' }} />
+                              </div>
+                              <div>
+                                <label style={{ display: 'block', fontWeight: '600', fontSize: '0.82rem', color: '#374151', marginBottom: '4px' }}>{t('officer_res_amount')}</label>
+                                <input type="number" value={resolutionForm.resolved_amount} onChange={e => setResolutionForm({ ...resolutionForm, resolved_amount: e.target.value })}
+                                  placeholder="0.00"
+                                  style={{ width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.82rem', boxSizing: 'border-box' }} />
+                              </div>
+                            </div>
 
-                        <div style={{ marginBottom: '16px' }}>
-                          <label style={{ display: 'block', fontWeight: '600', fontSize: '0.82rem', color: '#374151', marginBottom: '4px' }}>
-                            <Upload size={14} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> {t('officer_res_letter')}
-                          </label>
-                          <input type="file" accept=".pdf,.jpg,.jpeg,.png,.txt"
-                            onChange={e => setResolutionFile(e.target.files?.[0] || null)}
-                            style={{ width: '100%', padding: '6px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.82rem' }} />
-                          <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '4px' }}>
-                            {lang === 'hi' ? 'मान्य प्रारूप: PDF, JPG, PNG, TXT। यह प्रमाण ग्राहक द्वारा डाउनलोड किया जा सकेगा।' : 'Accepted: PDF, JPG, PNG, TXT. This proof will be downloadable by the customer.'}
-                          </div>
-                        </div>
+                            <div style={{ marginBottom: '16px' }}>
+                              <label style={{ display: 'block', fontWeight: '600', fontSize: '0.82rem', color: '#374151', marginBottom: '4px' }}>
+                                <Upload size={14} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> {t('officer_res_letter')}
+                              </label>
+                              <input type="file" accept=".pdf,.jpg,.jpeg,.png,.txt"
+                                onChange={e => setResolutionFile(e.target.files?.[0] || null)}
+                                style={{ width: '100%', padding: '6px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.82rem' }} />
+                              <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '4px' }}>
+                                {lang === 'hi' ? 'मान्य प्रारूप: PDF, JPG, PNG, TXT। यह प्रमाण ग्राहक द्वारा डाउनलोड किया जा सकेगा।' : 'Accepted: PDF, JPG, PNG, TXT. This proof will be downloadable by the customer.'}
+                              </div>
+                            </div>
+                          </>
+                        )}
 
                         <button onClick={handleSubmitResolution} disabled={actionLoading}
                           style={{ width: '100%', padding: '12px', background: actionLoading ? '#94a3b8' : 'linear-gradient(135deg, #1e40af, #1d4ed8)', color: 'white', border: 'none', borderRadius: '8px', cursor: actionLoading ? 'not-allowed' : 'pointer', fontWeight: '700', fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
