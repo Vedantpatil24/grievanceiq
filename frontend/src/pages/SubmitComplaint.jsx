@@ -172,6 +172,7 @@ export default function SubmitComplaint() {
   const [docValidating, setDocValidating] = useState(false);
   const [docWarnings, setDocWarnings] = useState([]);
   const [docValid, setDocValid] = useState(null); // null = not checked, true = ok, false = warnings
+  // null=not checked, 'VERIFIED'|'NEEDS_REVIEW'|'FAILED'|'INVALID_FILE'|'NO_EVIDENCE'
 
   // Result state after submission
   const [submittedData, setSubmittedData] = useState(null);
@@ -180,11 +181,15 @@ export default function SubmitComplaint() {
 
   const activeConfig = SERVICE_CONFIGS[serviceType] || SERVICE_CONFIGS["UPI / IMPS / Digital Fund Transfer"];
 
+  // docVerdict: null=not checked, 'VERIFIED'|'NEEDS_REVIEW'|'FAILED'|'INVALID_FILE'|'NO_EVIDENCE'
+  const [docVerdict, setDocVerdict] = useState(null);
+
   const handleFileChange = async (e) => {
     const file = e.target.files[0];
     setProofFile(file || null);
     setDocWarnings([]);
     setDocValid(null);
+    setDocVerdict(null);
 
     if (!file) return;
 
@@ -205,10 +210,13 @@ export default function SubmitComplaint() {
       });
 
       setDocValid(res.data.valid);
+      setDocVerdict(res.data.verdict || (res.data.valid ? 'VERIFIED' : 'FAILED'));
       setDocWarnings(res.data.warnings || []);
     } catch (err) {
-      // If endpoint fails, don't block user
-      setDocValid(true);
+      // API call failed — do NOT silently assume valid. Show as unverified.
+      setDocValid(null);
+      setDocVerdict(null);
+      setDocWarnings(['Document verification service is unavailable. Your document will be manually reviewed by a bank officer after submission.']);
     } finally {
       setDocValidating(false);
     }
@@ -580,22 +588,43 @@ export default function SubmitComplaint() {
                 </div>
               )}
 
-              {!docValidating && docValid === true && proofFile && (
+              {/* VERIFIED: domain confirmed + category keywords matched */}
+              {!docValidating && docVerdict === 'VERIFIED' && proofFile && (
                 <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '8px', color: '#16a34a', fontSize: '0.82rem', fontWeight: '700', background: '#f0fdf4', padding: '8px 12px', borderRadius: '6px', border: '1px solid #bbf7d0' }}>
-                  <CheckCircle size={15} /> Document verified — content appears relevant to the selected complaint category.
+                  <CheckCircle size={15} /> Document verified — banking content confirmed for this complaint category.
                 </div>
               )}
 
-              {!docValidating && docWarnings.length > 0 && (
+              {/* NEEDS_REVIEW: accepted for submission but will be manually reviewed */}
+              {!docValidating && docVerdict === 'NEEDS_REVIEW' && proofFile && (
+                <div style={{ marginTop: '10px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '6px', padding: '10px 14px' }}>
+                  <div style={{ color: '#92400e', fontWeight: '700', fontSize: '0.85rem', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    ⚠ Document accepted — pending officer verification
+                  </div>
+                  <div style={{ color: '#78350f', fontSize: '0.8rem' }}>
+                    {docWarnings.length > 0 ? docWarnings[0] : 'A bank officer will manually verify this document before processing your complaint.'}
+                  </div>
+                </div>
+              )}
+
+              {/* API error — not silently passing */}
+              {!docValidating && docVerdict === null && proofFile && docWarnings.length > 0 && (
+                <div style={{ marginTop: '10px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '6px', padding: '8px 12px' }}>
+                  <div style={{ color: '#1e40af', fontSize: '0.8rem' }}>ℹ {docWarnings[0]}</div>
+                </div>
+              )}
+
+              {/* FAILED or INVALID_FILE: hard rejection */}
+              {!docValidating && (docVerdict === 'FAILED' || docVerdict === 'INVALID_FILE') && (
                 <div style={{ marginTop: '10px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '6px', padding: '10px 14px' }}>
                   <div style={{ color: '#991b1b', fontWeight: '700', fontSize: '0.85rem', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <AlertTriangle size={15} /> Invalid Document Detected — Please Upload Valid Proof
+                    <AlertTriangle size={15} /> Invalid Document — Please Upload Valid Banking Proof
                   </div>
                   {docWarnings.map((w, i) => (
                     <div key={i} style={{ color: '#b91c1c', fontSize: '0.8rem', marginBottom: '4px' }}>• {w}</div>
                   ))}
                   <div style={{ marginTop: '6px', fontSize: '0.75rem', color: '#7f1d1d', fontStyle: 'italic', fontWeight: '500' }}>
-                    Non-banking files (e.g. college lab manuals, assignments, personal notes) or documents with conflicting transaction numbers will be rejected by the validation engine.
+                    Non-banking files (e.g. screenshots, chats, games, lab manuals, personal photos) are not accepted as evidence.
                   </div>
                 </div>
               )}

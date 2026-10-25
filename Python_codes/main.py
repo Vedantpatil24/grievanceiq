@@ -33,6 +33,8 @@ from sla_engine import calculate_deadline, evaluate_sla_status
 from smart_assigner import assign_optimal_officer
 from duplicate_detector import check_duplicates_and_anomalies
 from ocr_service import analyze_document_proof
+from evidence_verifier import check_evidence_for_submission
+from evidence_verifier import verify_evidence as verify_evidence_doc
 from audit_service import log_audit_event, create_notification
 from semantic_engine import predict_sub_category, find_similar_complaints
 from bank_intelligence import (
@@ -331,28 +333,37 @@ async def submit_complaint(
     company_obj = db.query(Company).filter(Company.company_id == company_id).first()
     bank_name = company_obj.company_name if company_obj else "Bank"
 
-    # 4. Document OCR & 5-Field Cross-Verification against Attached Proof (only if proof provided)
-    ocr_res = {"verified": False, "mismatch_detected": False, "mismatch_details": []}
+    # 4. Evidence Verification — Strict Relevance Assessment
+    # Rules: file existing ≠ verified; OCR success ≠ relevant; unrelated content MUST fail.
+    evidence_result = {"verdict": "NO_EVIDENCE", "evidence_status": "NOT_REQUIRED",
+                       "display_status": "NOT_REQUIRED", "blocks_submission": False,
+                       "reasons": [], "warnings": [], "domain_scores": {}, "keyword_check": {},
+                       "extracted_text_length": 0}
+
     if saved_file_path:
-        ocr_res = analyze_document_proof(
+        evidence_result = check_evidence_for_submission(
             file_path=saved_file_path,
+            service_type=service_type,
             submitted_bank=bank_name,
             submitted_date=transaction_date,
             submitted_amount=amount,
             submitted_ref_id=reference_id,
-            submitted_branch=branch
+            submitted_branch=branch,
         )
 
-        # If attached document data conflicts with user inputs, reject or flag mismatch
-        if ocr_res.get("mismatch_detected"):
-            mismatch_str = "; ".join(ocr_res["mismatch_details"])
+        if evidence_result["blocks_submission"]:
+            # FAILED or INVALID_FILE — reject the submission entirely
             raise HTTPException(
                 status_code=422,
                 detail={
-                    "error": "DOCUMENT_DATA_MISMATCH",
+                    "error": "EVIDENCE_VERIFICATION_FAILED",
                     "score": validity_res["score"],
-                    "missing_items": ocr_res["mismatch_details"],
-                    "feedback": f"Document Verification Failed: Attached document data does not match entered transaction details. Discrepancies: {mismatch_str}"
+                    "missing_items": evidence_result["reasons"],
+                    "feedback": (
+                        "Evidence Rejected: The uploaded document does not appear to be a valid banking "
+                        "record for this complaint type. "
+                        + " ".join(evidence_result["reasons"])
+                    ),
                 }
             )
 
@@ -407,7 +418,7 @@ async def submit_complaint(
         status="bot_proposed",
         validity_score=validity_res["score"],
         validity_status="valid",
-        evidence_status="VERIFIED" if saved_file_path and not ocr_res.get("mismatch_detected") else ("PENDING" if saved_file_path else "NOT_REQUIRED"),
+        evidence_status=evidence_result["display_status"],
         resolution_mode="NONE",
         matched_article_id=bot_res["article_id"],
         bot_confidence=bot_res["bot_confidence"],
@@ -483,7 +494,14 @@ async def submit_complaint(
         "priority": ml_res["priority"],
         "ml_confidence": ml_res["confidence"],
         "bot_assessment": bot_res,
-        "ocr_verification": ocr_res,
+        "evidence_verification": {
+            "verdict": evidence_result["verdict"],
+            "evidence_status": evidence_result["display_status"],
+            "domain_scores": evidence_result.get("domain_scores", {}),
+            "keyword_check": evidence_result.get("keyword_check", {}),
+            "extracted_text_length": evidence_result.get("extracted_text_length", 0),
+            "warnings": evidence_result.get("warnings", []),
+        },
         "duplicate_check": dup_res,
         "similar_complaints": similar_cases
     }
@@ -2003,11 +2021,13 @@ async def validate_document(
     submitted_branch: Optional[str] = Form(None),
 ):
     """
-    Real-time document validation endpoint called immediately when user uploads a proof file.
+    Real-time document validation endpoint — uses strict evidence_verifier engine.
     Returns mismatch warnings before final complaint submission.
+    A file being uploadable does NOT mean it is relevant.
+    Unrelated screenshots, chats, games, or academic docs will be REJECTED.
     """
     if not proof_file or not proof_file.filename:
-        return {"valid": False, "message": "No file provided."}
+        return {"valid": False, "verdict": "NO_EVIDENCE", "warnings": [], "message": "No file provided."}
 
     # Save temp file
     temp_filename = f"tmp_{int(datetime.utcnow().timestamp())}_{proof_file.filename}"
@@ -2016,52 +2036,43 @@ async def validate_document(
         shutil.copyfileobj(proof_file.file, buffer)
 
     try:
-        CATEGORY_DOC_KEYWORDS = {
-            "UPI / IMPS / Digital Fund Transfer": ["upi", "imps", "transfer", "utr", "transaction", "npci", "payment", "debit", "gpay", "phonepe", "paytm"],
-            "Credit Card / Disputed Charges & Fee": ["card", "credit", "debit", "chargeback", "statement", "billing", "merchant", "pos", "transaction"],
-            "Net Banking / Mobile App & Tech Glitch": ["netbanking", "net banking", "mobile", "internet", "login", "app", "otp", "session", "error"],
-            "Loan Closure, NOC & Document Dispatch": ["loan", "emi", "interest", "principal", "repayment", "outstanding", "foreclosure", "noc", "lien"],
-            "KYC, Account Freezing & Dormancy": ["account", "savings", "current", "kyc", "freeze", "dormant", "balance", "statement", "pan", "aadhaar"],
-            "Credit Bureau / CIBIL Rectification": ["cibil", "credit score", "bureau", "experian", "report", "overdue", "dpd", "cir"],
-            "Lost / Stolen Card & Emergency Block": ["card", "lost", "stolen", "block", "hotlist", "deactivate", "replacement", "police"],
-            "ATM Cash Withdrawal Failure": ["atm", "cash", "dispense", "withdrawal", "machine", "slip", "debit"],
-            "Staff Behavior & Recovery Harassment": ["complaint", "harassment", "recovery", "agent", "misconduct", "staff", "threat"],
-        }
-
-        # Cross-verify form fields and document content authenticity via analyze_document_proof
-        ocr_result = analyze_document_proof(
+        # Use the strict evidence_verifier instead of the old heuristic approach
+        result = verify_evidence_doc(
             file_path=temp_path,
+            service_type=service_type,
             submitted_bank=submitted_bank,
             submitted_date=submitted_date,
             submitted_amount=submitted_amount,
             submitted_ref_id=submitted_ref_id,
-            submitted_branch=submitted_branch
+            submitted_branch=submitted_branch,
         )
 
-        warnings = []
-        if ocr_result.get("mismatch_detected"):
-            warnings.extend(ocr_result.get("mismatch_details", []))
+        verdict = result["verdict"]
+        is_valid = verdict == "VERIFIED"
+        needs_review = verdict == "NEEDS_REVIEW"
 
-        extracted_text = (ocr_result.get("extracted_text") or "").lower()
+        # Build warnings list from both reasons (hard failures) and warnings (soft flags)
+        all_warnings = result.get("reasons", []) + result.get("warnings", [])
 
-        # Check for category-specific keywords if text was extracted
-        expected_keywords = CATEGORY_DOC_KEYWORDS.get(service_type, [])
-        matched_keywords = [kw for kw in expected_keywords if kw in extracted_text]
-
-        if extracted_text and len(extracted_text) > 40 and expected_keywords and len(matched_keywords) == 0:
-            warnings.append(
-                f"The uploaded document does not appear to contain terms relevant to '{service_type}'. "
-                f"Expected to find references like: {', '.join(expected_keywords[:4])}."
+        if is_valid:
+            message = "Document verified — content appears relevant to the selected complaint category."
+        elif needs_review:
+            message = (
+                "Document requires manual officer review. It will be accepted for submission "
+                "but a bank officer will verify the evidence before processing."
             )
-
-        is_valid = len(warnings) == 0
+        else:
+            # FAILED, INVALID_FILE
+            message = f"Document rejected: {all_warnings[0] if all_warnings else 'Unrelated or unverifiable document.'}"
 
         return {
-            "valid": is_valid,
-            "warnings": warnings,
-            "matched_keywords": matched_keywords,
-            "extraction_mode": ocr_result.get("extraction_mode", "DOCUMENT_PARSER"),
-            "message": "Document verified — content appears relevant to the selected complaint category." if is_valid else f"{len(warnings)} discrepancy/ies detected in the uploaded file."
+            "valid": is_valid or needs_review,  # allow NEEDS_REVIEW to proceed to submission
+            "verdict": verdict,
+            "warnings": all_warnings,
+            "matched_keywords": result.get("keyword_check", {}).get("primary_matched", []),
+            "domain_scores": result.get("domain_scores", {}),
+            "extracted_text_length": result.get("extracted_text_length", 0),
+            "message": message,
         }
 
     finally:
