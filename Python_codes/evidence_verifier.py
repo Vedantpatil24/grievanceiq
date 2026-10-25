@@ -385,41 +385,145 @@ def verify_evidence(
                 "extracted_text": extracted_text if extracted_text else "",
             }
 
-        # ─── STEP 5: Entity corroboration ─────────────────────────────────────
+        # ─── STEP 5: Entity corroboration (robust matching) ──────────────────
         text_lower = extracted_text.lower()
+        import logging as _ev_log
+        _ev_logger = _ev_log.getLogger(__name__)
+        field_match_details = {}  # per-field result for frontend display
 
-        if submitted_bank and submitted_bank.strip():
-            bank_tokens = [
-                w for w in re.findall(r'\b[a-zA-Z]{3,}\b', submitted_bank.lower())
-                if w not in {"bank", "of", "india", "the", "ltd", "limited"}
+        def _normalize_alnum(s):
+            """Strip everything except letters and digits, lowercase."""
+            return re.sub(r'[^a-z0-9]', '', str(s).lower())
+
+        def _amount_in_text(amount_val, raw_text):
+            """
+            Parse every monetary-looking value from raw_text and compare
+            numerically. Handles ₹3,500  /  Rs. 3500.00  /  3 500  /  3500.
+            """
+            # Find all number-like tokens (with optional commas / decimals)
+            candidates = re.findall(
+                r'(?:₹|INR|Rs\.?)?\s*([\d][\d,\.\s]{0,12}[\d])',
+                raw_text, flags=re.IGNORECASE
+            )
+            target = round(float(amount_val), 2)
+            for c in candidates:
+                cleaned = c.replace(',', '').replace(' ', '').strip()
+                try:
+                    if abs(float(cleaned) - target) < 0.02:
+                        return True
+                except ValueError:
+                    pass
+            # Also try simple integer substring as last resort
+            return str(int(round(target))) in raw_text
+
+        def _date_in_text(date_str, raw_text):
+            """
+            Parse the submitted date string into a date object and look for
+            it in the document text under multiple common formats.
+            Returns (matched: bool, parsed_date_or_None).
+            """
+            from datetime import datetime
+            date_str = date_str.strip()
+            DATE_FMTS = [
+                '%d/%m/%Y', '%d-%m-%Y', '%Y-%m-%d', '%d.%m.%Y',
+                '%d %b %Y', '%d %B %Y', '%B %d, %Y', '%b %d, %Y',
             ]
-            bank_matched = any(tok in text_lower for tok in bank_tokens) if bank_tokens else False
+            parsed = None
+            for fmt in DATE_FMTS:
+                try:
+                    parsed = datetime.strptime(date_str, fmt).date()
+                    break
+                except ValueError:
+                    pass
+            if parsed is None:
+                # Can't parse — fall back to digit-sequence comparison
+                date_digits = re.sub(r'[^0-9]', '', date_str)
+                doc_digits  = re.sub(r'[^0-9]', '', raw_text)
+                return (date_digits and date_digits in doc_digits), None
+
+            # Try to find any date in the document that equals parsed
+            DATE_PATTERNS = [
+                # Capture entire date string (NOT just first group)
+                (r'\b(\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4})\b',
+                 ['%d/%m/%Y','%d-%m-%Y','%d.%m.%Y','%m/%d/%Y','%m-%d-%Y',
+                  '%d/%m/%y','%d-%m-%y']),
+                (r'\b(\d{4}[/\-]\d{2}[/\-]\d{2})\b',
+                 ['%Y/%m/%d','%Y-%m-%d']),
+                (r'\b(\d{1,2}\s+[A-Za-z]{3,9}\.?\s+\d{4})\b',
+                 ['%d %b %Y','%d %B %Y','%d %b. %Y']),
+                (r'\b([A-Za-z]{3,9}\.?\s+\d{1,2},?\s+\d{4})\b',
+                 ['%b %d, %Y','%B %d, %Y','%b %d %Y','%B %d %Y']),
+            ]
+            for pattern, fmts in DATE_PATTERNS:
+                for candidate in re.findall(pattern, raw_text, flags=re.IGNORECASE):
+                    for fmt in fmts:
+                        try:
+                            if datetime.strptime(candidate.strip(), fmt).date() == parsed:
+                                return True, parsed
+                        except ValueError:
+                            pass
+            return False, parsed
+
+        # ── Bank name ────────────────────────────────────────────────────────
+        if submitted_bank and submitted_bank.strip():
+            bank_name = submitted_bank.strip().lower()
+            stop = {'bank','of','india','the','ltd','limited','pvt','co','payments'}
+            bank_tokens = [
+                w for w in re.findall(r'\b[a-z]{3,}\b', bank_name)
+                if w not in stop
+            ]
+            # Match bank tokens using word boundaries so 'hdfc' in 'HDFC2026...' (UTR) does NOT count
+            def _bank_word_match(tok, text):
+                return bool(re.search(r'(?<![A-Z0-9a-z])' + re.escape(tok) + r'(?![A-Z0-9a-z])', text, re.IGNORECASE))
+            bank_matched = bool(bank_tokens) and any(_bank_word_match(t, extracted_text) for t in bank_tokens)
+            field_match_details['bank'] = 'matched' if bank_matched else 'not_found'
             if not bank_matched:
                 entity_mismatches.append(
                     f"Bank Not Found: '{submitted_bank}' is not mentioned in the document."
                 )
+                _ev_logger.warning('[verifier] Bank mismatch. submitted=%s tokens=%s', submitted_bank, bank_tokens)
+            else:
+                _ev_logger.info('[verifier] Bank OK: %s', submitted_bank)
 
+        # ── Reference / UTR ID ───────────────────────────────────────────────
         if submitted_ref_id and len(submitted_ref_id.strip()) >= 5:
-            if submitted_ref_id.strip().lower() not in text_lower:
+            norm_ref = _normalize_alnum(submitted_ref_id)
+            norm_doc = _normalize_alnum(extracted_text)
+            ref_matched = norm_ref in norm_doc
+            field_match_details['ref_id'] = 'matched' if ref_matched else 'not_found'
+            if not ref_matched:
                 entity_mismatches.append(
                     f"Reference ID Not Found: '{submitted_ref_id}' is not present in the document."
                 )
+                _ev_logger.warning('[verifier] Ref mismatch. norm_ref=%s doc_prefix=%s', norm_ref, norm_doc[:200])
+            else:
+                _ev_logger.info('[verifier] Ref OK: %s', submitted_ref_id)
 
-        if submitted_amount and submitted_amount > 0:
-            int_amt = str(int(submitted_amount))
-            fmt_amt = f"{submitted_amount:,.2f}"
-            if int_amt not in extracted_text and fmt_amt not in extracted_text:
+        # ── Amount ───────────────────────────────────────────────────────────
+        if submitted_amount is not None and float(submitted_amount) > 0:
+            amt_matched = _amount_in_text(submitted_amount, extracted_text)
+            field_match_details['amount'] = 'matched' if amt_matched else 'not_found'
+            if not amt_matched:
                 entity_mismatches.append(
-                    f"Amount Not Found: ₹{submitted_amount:,.2f} does not match any value in the document."
+                    f"Amount Not Found: ₹{float(submitted_amount):,.2f} does not match any monetary value in the document."
                 )
+                _ev_logger.warning('[verifier] Amount mismatch. submitted=%.2f', float(submitted_amount))
+            else:
+                _ev_logger.info('[verifier] Amount OK: %.2f', float(submitted_amount))
 
+        # ── Date ─────────────────────────────────────────────────────────────
         if submitted_date and submitted_date.strip():
-            date_digits = re.sub(r'[^0-9]', '', submitted_date.strip())
-            doc_digits = re.sub(r'[^0-9]', '', extracted_text)
-            if date_digits and date_digits not in doc_digits:
+            date_matched, _parsed = _date_in_text(submitted_date, extracted_text)
+            field_match_details['date'] = 'matched' if date_matched else 'not_found'
+            if not date_matched:
                 entity_mismatches.append(
-                    f"Date Not Matched: '{submitted_date}' is not corroborated by the document."
+                    f"Date Not Matched: '{submitted_date}' was not found in the document in any recognised format."
                 )
+                _ev_logger.warning('[verifier] Date mismatch. submitted=%s', submitted_date)
+            else:
+                _ev_logger.info('[verifier] Date OK: %s', submitted_date)
+
+        _ev_logger.info('[verifier] field_match_details=%s mismatches=%d', field_match_details, len(entity_mismatches))
 
         # Determine verdict with text present
         has_enough_keywords = keyword_check.get("sufficient", False)
@@ -435,11 +539,11 @@ def verify_evidence(
                     "verdict": "NEEDS_REVIEW",
                     "evidence_status": "NEEDS_REVIEW",
                     "reasons": [
-                        "Entity Mismatch: Document appears to be a financial record but transaction "
-                        "details (amount, reference ID, bank, or date) do not match complaint fields. "
-                        "A bank officer will manually review the evidence."
+                        "Entity Mismatch: Document appears to be a financial record but some "
+                        "transaction details could not be confirmed. A bank officer will review."
                     ],
                     "warnings": entity_mismatches,
+                    "field_match_details": field_match_details,
                     "domain_scores": domain_scores,
                     "keyword_check": keyword_check,
                     "extracted_text_length": text_length,
@@ -516,6 +620,7 @@ def verify_evidence(
             "evidence_status": "VERIFIED",
             "reasons": [],
             "warnings": warnings,
+            "field_match_details": field_match_details,
             "domain_scores": domain_scores,
             "keyword_check": keyword_check,
             "extracted_text_length": text_length,

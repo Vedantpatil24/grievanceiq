@@ -184,6 +184,7 @@ export default function SubmitComplaint() {
   // docVerdict: null=not checked, 'VERIFIED'|'NEEDS_REVIEW'|'FAILED'|'INVALID_FILE'|'NO_EVIDENCE'
   const [docVerdict, setDocVerdict] = useState(null);
   const [docExtractedFields, setDocExtractedFields] = useState(null);
+  const [docFieldMatches, setDocFieldMatches] = useState({});  // per-field match results
 
   const handleFileChange = async (e) => {
     const file = e.target.files[0];
@@ -192,6 +193,7 @@ export default function SubmitComplaint() {
     setDocValid(null);
     setDocVerdict(null);
     setDocExtractedFields(null);
+    setDocFieldMatches({});
 
     if (!file) return;
 
@@ -216,6 +218,9 @@ export default function SubmitComplaint() {
       setDocWarnings(res.data.warnings || []);
       if (res.data.extracted_fields && Object.keys(res.data.extracted_fields).length > 0) {
         setDocExtractedFields(res.data.extracted_fields);
+      }
+      if (res.data.field_match_details) {
+        setDocFieldMatches(res.data.field_match_details);
       }
     } catch (err) {
       // API call failed — do NOT silently assume valid. Show as unverified.
@@ -596,8 +601,31 @@ export default function SubmitComplaint() {
               {/* VERIFIED: domain confirmed + category keywords matched */}
               {!docValidating && docVerdict === 'VERIFIED' && proofFile && (
                 <div>
-                  <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '8px', color: '#16a34a', fontSize: '0.82rem', fontWeight: '700', background: '#f0fdf4', padding: '8px 12px', borderRadius: '6px', border: '1px solid #bbf7d0' }}>
-                    <CheckCircle size={15} /> Document verified — banking content confirmed for this complaint category.
+                  <div style={{ marginTop: '10px', background: '#f0fdf4', padding: '10px 14px', borderRadius: '6px', border: '1px solid #bbf7d0' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#16a34a', fontSize: '0.82rem', fontWeight: '700', marginBottom: '6px' }}>
+                      <CheckCircle size={15} /> Document verified — banking content confirmed.
+                    </div>
+                    {Object.keys(docFieldMatches).length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                        {['bank','amount','date','ref_id'].map(key => {
+                          const labels = { bank: 'Bank', amount: 'Amount', date: 'Date', ref_id: 'Reference ID' };
+                          const val = docFieldMatches[key];
+                          if (!val) return null;
+                          const ok = val === 'matched';
+                          return (
+                            <span key={key} style={{
+                              fontSize: '0.75rem', fontWeight: '600', padding: '2px 8px',
+                              borderRadius: '12px',
+                              background: ok ? '#dcfce7' : '#fee2e2',
+                              color: ok ? '#166534' : '#991b1b',
+                              border: `1px solid ${ok ? '#86efac' : '#fca5a5'}`
+                            }}>
+                              {ok ? '✓' : '✗'} {labels[key] || key}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                   {docExtractedFields && Object.keys(docExtractedFields).length > 0 && (
                     <div style={{ marginTop: '8px', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: '6px', padding: '10px 14px', fontSize: '0.8rem', color: '#14532d' }}>
@@ -618,12 +646,41 @@ export default function SubmitComplaint() {
               {/* NEEDS_REVIEW: accepted for submission but will be manually reviewed */}
               {!docValidating && docVerdict === 'NEEDS_REVIEW' && proofFile && (
                 <div style={{ marginTop: '10px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '6px', padding: '10px 14px' }}>
-                  <div style={{ color: '#92400e', fontWeight: '700', fontSize: '0.85rem', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <div style={{ color: '#92400e', fontWeight: '700', fontSize: '0.85rem', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                     ⚠ Document accepted — pending officer verification
                   </div>
-                  <div style={{ color: '#78350f', fontSize: '0.8rem' }}>
-                    {docWarnings.length > 0 ? docWarnings[0] : 'A bank officer will manually verify this document before processing your complaint.'}
-                  </div>
+                  {/* Per-field match details */}
+                  {Object.keys(docFieldMatches).length > 0 && (
+                    <div style={{ marginBottom: '8px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                      {['bank','amount','date','ref_id'].map(key => {
+                        const labels = { bank: 'Bank', amount: 'Amount', date: 'Date', ref_id: 'Reference ID' };
+                        const val = docFieldMatches[key];
+                        if (!val) return null;
+                        const ok = val === 'matched';
+                        return (
+                          <span key={key} style={{
+                            fontSize: '0.75rem', fontWeight: '600', padding: '2px 8px',
+                            borderRadius: '12px',
+                            background: ok ? '#dcfce7' : '#fee2e2',
+                            color: ok ? '#166534' : '#991b1b',
+                            border: `1px solid ${ok ? '#86efac' : '#fca5a5'}`
+                          }}>
+                            {ok ? '✓' : '✗'} {labels[key] || key}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {/* All mismatch reasons */}
+                  {docWarnings.length > 0 ? (
+                    <div>
+                      {docWarnings.map((w, i) => (
+                        <div key={i} style={{ color: '#78350f', fontSize: '0.8rem', marginBottom: '3px' }}>• {w}</div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ color: '#78350f', fontSize: '0.8rem' }}>A bank officer will manually verify this document before processing your complaint.</div>
+                  )}
                 </div>
               )}
 

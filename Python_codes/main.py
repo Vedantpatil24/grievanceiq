@@ -2086,6 +2086,7 @@ async def validate_document(
             "extracted_text_length": result.get("extracted_text_length", 0),
             "extracted_text_preview": extracted_text[:400] if extracted_text else "",
             "extracted_fields": extracted_fields,
+            "field_match_details": result.get("field_match_details", {}),
             "message": message,
         }
 
