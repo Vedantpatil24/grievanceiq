@@ -306,6 +306,42 @@ export default function AdminDashboard() {
           </p>
         </div>
 
+        {/* Global Refresh Button */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button 
+            onClick={() => {
+              fetchComplaints();
+              axios.get('/api/analytics/overview').then(r => setKpis(r.data)).catch(() => {});
+              axios.get('/api/analytics/trends').then(r => setTrends(r.data)).catch(() => {});
+              if (activeTab === 'nova') {
+                setAiPerfLoading(true);
+                axios.get('/api/analytics/ai-performance')
+                  .then(r => setAiPerfData(r.data))
+                  .catch(() => {})
+                  .finally(() => setAiPerfLoading(false));
+              }
+            }}
+            className="btn btn-secondary"
+            style={{ 
+              display: 'inline-flex', 
+              alignItems: 'center', 
+              gap: '6px', 
+              background: '#ffffff', 
+              border: '1px solid #cbd5e1', 
+              color: '#1e40af', 
+              fontWeight: '700', 
+              padding: '6px 14px', 
+              borderRadius: '8px',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+              cursor: 'pointer'
+            }}
+            title="Refresh All Complaints & Live Analytics"
+          >
+            <RefreshCw size={14} className={loading || aiPerfLoading ? 'spin-icon' : ''} />
+            <span>{t('refresh') || 'Refresh Data'}</span>
+          </button>
+        </div>
+
         {/* Language Selector */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#e2e8f0', padding: '5px 10px', borderRadius: '8px' }}>
           <Globe size={15} color="#1e40af" />
@@ -324,6 +360,9 @@ export default function AdminDashboard() {
           >
             <option value="en">English</option>
             <option value="hi">हिंदी (Hindi)</option>
+            <option value="mr">मराठी (Marathi)</option>
+            <option value="ta">தமிழ் (Tamil)</option>
+            <option value="gu">ગુજરાતી (Gujarati)</option>
           </select>
         </div>
 
