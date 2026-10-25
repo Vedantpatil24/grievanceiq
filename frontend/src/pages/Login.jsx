@@ -65,7 +65,7 @@ export default function Login() {
         }
         navigate(role === 'ADMIN' ? '/admin' : '/employee');
       } else {
-        if (role !== 'CUSTOMER') {
+        if (role !== 'CUSTOMER' && role !== 'USER') {
           setErrorMsg(lang === 'hi' ? 'यह ईमेल स्टाफ खाते से संबद्ध है। कृपया "स्टाफ लॉगिन" टैब का उपयोग करें।' : 'This email belongs to a staff account. Please use the "Staff Login" tab.');
           localStorage.removeItem('grievanceiq_token');
           localStorage.removeItem('grievanceiq_user');
@@ -109,7 +109,7 @@ export default function Login() {
         lang === 'mr' ? 'खाते यशस्वीरित्या तयार केले! कृपया लॉगिन करा.' :
         'Account created successfully! Please log in with your credentials.'
       );
-      setCustomerMode('login');
+      setCustomerMode('signin');
       setPassword('');
       setConfirmPassword('');
     } catch (err) {
