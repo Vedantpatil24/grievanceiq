@@ -61,15 +61,20 @@ def extract_document_metadata_and_text(file_path: str) -> dict:
         except Exception:
             pass
 
-    # 3. Image OCR extraction via pytesseract
+    # 3. Image OCR extraction via EasyOCR (ocr_engine.py)
     elif file_ext in ["jpg", "jpeg", "png", "bmp", "tiff", "webp"]:
         try:
-            import pytesseract
-            image = Image.open(file_path)
-            text = pytesseract.image_to_string(image)
+            from ocr_engine import extract_text as _ocr_extract
+            import logging as _logging_svc
+            _ocr_result = _ocr_extract(file_path)
+            text = _ocr_result.get("text", "")
             page_count = 1
-        except Exception:
-            pass
+            _logging_svc.getLogger(__name__).info(
+                f"[ocr_service] OCR: {len(text)} chars, conf={_ocr_result.get('confidence')}, status={_ocr_result.get('status')}"
+            )
+        except Exception as _svc_exc:
+            import logging as _logging_svc
+            _logging_svc.getLogger(__name__).error(f"[ocr_service] OCR engine error: {_svc_exc}")
 
     return {
         "text": text.strip(),

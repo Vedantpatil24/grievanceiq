@@ -155,12 +155,16 @@ def _extract_text(file_path: str) -> dict:
 
     elif file_ext in ["jpg", "jpeg", "png", "bmp", "tiff", "webp"]:
         try:
-            import pytesseract
-            from PIL import Image
-            image = Image.open(file_path)
-            text = pytesseract.image_to_string(image)
-        except Exception:
-            pass
+            from ocr_engine import extract_text as _ocr_extract
+            import logging as _logging_ev
+            _ocr_result = _ocr_extract(file_path)
+            text = _ocr_result.get("text", "")
+            _logging_ev.getLogger(__name__).info(
+                f"[evidence_verifier] OCR: {len(text)} chars, status={_ocr_result.get('status')}, conf={_ocr_result.get('confidence')}"
+            )
+        except Exception as _ev_exc:
+            import logging as _logging_ev
+            _logging_ev.getLogger(__name__).error(f"[evidence_verifier] OCR engine error: {_ev_exc}")
 
     return {
         "text": text.strip(),
@@ -357,6 +361,7 @@ def verify_evidence(
                 "domain_scores": domain_scores,
                 "keyword_check": {},
                 "extracted_text_length": text_length,
+                "extracted_text": extracted_text if extracted_text else "",
             }
 
         # For FINANCIAL or UNCLASSIFIABLE text, check category-specific keywords
@@ -377,6 +382,7 @@ def verify_evidence(
                 "domain_scores": domain_scores,
                 "keyword_check": keyword_check,
                 "extracted_text_length": text_length,
+                "extracted_text": extracted_text if extracted_text else "",
             }
 
         # ─── STEP 5: Entity corroboration ─────────────────────────────────────
@@ -437,6 +443,7 @@ def verify_evidence(
                     "domain_scores": domain_scores,
                     "keyword_check": keyword_check,
                     "extracted_text_length": text_length,
+                    "extracted_text": extracted_text if extracted_text else "",
                 }
             else:
                 reasons.extend(entity_mismatches)
@@ -448,6 +455,7 @@ def verify_evidence(
                     "domain_scores": domain_scores,
                     "keyword_check": keyword_check,
                     "extracted_text_length": text_length,
+                    "extracted_text": extracted_text if extracted_text else "",
                 }
 
         # All entity checks passed (or no entity fields were submitted)
@@ -471,6 +479,7 @@ def verify_evidence(
                 "domain_scores": domain_scores,
                 "keyword_check": keyword_check,
                 "extracted_text_length": text_length,
+                "extracted_text": extracted_text if extracted_text else "",
             }
 
         # If no entity fields provided AND domain is uncertain → NEEDS_REVIEW
@@ -483,6 +492,7 @@ def verify_evidence(
                 "domain_scores": domain_scores,
                 "keyword_check": keyword_check,
                 "extracted_text_length": text_length,
+                "extracted_text": extracted_text if extracted_text else "",
             }
 
         if not has_enough_keywords:
@@ -497,6 +507,7 @@ def verify_evidence(
                 "domain_scores": domain_scores,
                 "keyword_check": keyword_check,
                 "extracted_text_length": text_length,
+                "extracted_text": extracted_text if extracted_text else "",
             }
 
         # Domain is financial + keywords match + no critical entity mismatches → VERIFIED
@@ -508,6 +519,7 @@ def verify_evidence(
             "domain_scores": domain_scores,
             "keyword_check": keyword_check,
             "extracted_text_length": text_length,
+            "extracted_text": extracted_text,
         }
 
     else:

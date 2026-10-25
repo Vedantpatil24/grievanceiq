@@ -183,6 +183,7 @@ export default function SubmitComplaint() {
 
   // docVerdict: null=not checked, 'VERIFIED'|'NEEDS_REVIEW'|'FAILED'|'INVALID_FILE'|'NO_EVIDENCE'
   const [docVerdict, setDocVerdict] = useState(null);
+  const [docExtractedFields, setDocExtractedFields] = useState(null);
 
   const handleFileChange = async (e) => {
     const file = e.target.files[0];
@@ -190,6 +191,7 @@ export default function SubmitComplaint() {
     setDocWarnings([]);
     setDocValid(null);
     setDocVerdict(null);
+    setDocExtractedFields(null);
 
     if (!file) return;
 
@@ -212,6 +214,9 @@ export default function SubmitComplaint() {
       setDocValid(res.data.valid);
       setDocVerdict(res.data.verdict || (res.data.valid ? 'VERIFIED' : 'FAILED'));
       setDocWarnings(res.data.warnings || []);
+      if (res.data.extracted_fields && Object.keys(res.data.extracted_fields).length > 0) {
+        setDocExtractedFields(res.data.extracted_fields);
+      }
     } catch (err) {
       // API call failed — do NOT silently assume valid. Show as unverified.
       setDocValid(null);
@@ -590,8 +595,23 @@ export default function SubmitComplaint() {
 
               {/* VERIFIED: domain confirmed + category keywords matched */}
               {!docValidating && docVerdict === 'VERIFIED' && proofFile && (
-                <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '8px', color: '#16a34a', fontSize: '0.82rem', fontWeight: '700', background: '#f0fdf4', padding: '8px 12px', borderRadius: '6px', border: '1px solid #bbf7d0' }}>
-                  <CheckCircle size={15} /> Document verified — banking content confirmed for this complaint category.
+                <div>
+                  <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '8px', color: '#16a34a', fontSize: '0.82rem', fontWeight: '700', background: '#f0fdf4', padding: '8px 12px', borderRadius: '6px', border: '1px solid #bbf7d0' }}>
+                    <CheckCircle size={15} /> Document verified — banking content confirmed for this complaint category.
+                  </div>
+                  {docExtractedFields && Object.keys(docExtractedFields).length > 0 && (
+                    <div style={{ marginTop: '8px', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: '6px', padding: '10px 14px', fontSize: '0.8rem', color: '#14532d' }}>
+                      <div style={{ fontWeight: '700', marginBottom: '6px', color: '#166534' }}>📄 Extracted Transaction Details</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px' }}>
+                        {docExtractedFields.amount && <span><strong>Amount:</strong> ₹{docExtractedFields.amount}</span>}
+                        {docExtractedFields.status && <span><strong>Status:</strong> {docExtractedFields.status}</span>}
+                        {docExtractedFields.txn_id && <span><strong>TxnID:</strong> {docExtractedFields.txn_id}</span>}
+                        {docExtractedFields.date && <span><strong>Date:</strong> {docExtractedFields.date}</span>}
+                        {docExtractedFields.bank && <span><strong>Bank:</strong> {docExtractedFields.bank}</span>}
+                        {docExtractedFields.merchant && <span><strong>Merchant:</strong> {docExtractedFields.merchant}</span>}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 

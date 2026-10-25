@@ -2065,6 +2065,18 @@ async def validate_document(
             # FAILED, INVALID_FILE
             message = f"Document rejected: {all_warnings[0] if all_warnings else 'Unrelated or unverifiable document.'}"
 
+        # Extract banking fields from OCR text if available
+        extracted_fields = {}
+        extracted_text = result.get("extracted_text", "") or ""
+        if extracted_text.strip():
+            try:
+                from ocr_engine import extract_banking_fields
+                extracted_fields = extract_banking_fields(extracted_text)
+                # Remove None values for cleaner response
+                extracted_fields = {k: v for k, v in extracted_fields.items() if v is not None}
+            except Exception:
+                pass
+
         return {
             "valid": is_valid or needs_review,  # allow NEEDS_REVIEW to proceed to submission
             "verdict": verdict,
@@ -2072,6 +2084,8 @@ async def validate_document(
             "matched_keywords": result.get("keyword_check", {}).get("primary_matched", []),
             "domain_scores": result.get("domain_scores", {}),
             "extracted_text_length": result.get("extracted_text_length", 0),
+            "extracted_text_preview": extracted_text[:400] if extracted_text else "",
+            "extracted_fields": extracted_fields,
             "message": message,
         }
 
