@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { LanguageProvider, useLanguage } from './context/LanguageContext';
 import Navbar from './components/Navbar';
+import NovaAssistant from './components/NovaAssistant';
 import SubmitComplaint from './pages/SubmitComplaint';
 import TrackComplaint from './pages/TrackComplaint';
 import CustomerHistory from './pages/CustomerHistory';
@@ -26,6 +27,7 @@ function AppContent() {
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
       </main>
+      <NovaAssistant />
       <footer style={{ background: '#0f172a', color: '#94a3b8', textAlign: 'center', padding: '16px', fontSize: '0.8rem', borderTop: '1px solid #1e293b' }}>
         {t('footer_text')}
       </footer>
