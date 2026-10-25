@@ -760,7 +760,7 @@ def list_customer_complaints(
     Returns history of grievances filed by or linked to the authenticated customer.
     """
     query = db.query(Complaint).filter(Complaint.customer_id == current_user.user_id)
-    complaints = query.order_by(Complaint.complaint_id.desc()).all()
+    complaints = query.order_by(Complaint.complaint_id.desc()).limit(limit or 100).all()
 
     result = []
     for c in complaints:
@@ -1001,6 +1001,7 @@ def list_admin_complaints(
     status_filter: Optional[str] = None,
     resolution_mode: Optional[str] = None,
     search: Optional[str] = None,
+    limit: Optional[int] = 100,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -1577,7 +1578,8 @@ async def ai_evidence_analysis(
     if not complaint:
         raise HTTPException(status_code=404, detail="Complaint not found")
     
-    if not complaint.proof_path:
+    proof_file = complaint.proof_file_path or getattr(complaint, 'proof_path', None)
+    if not proof_file:
         return {
             "confidence_score": 0,
             "confidence_label": "NO DOCUMENT",
@@ -1594,9 +1596,27 @@ async def ai_evidence_analysis(
             "auto_verdict": "PENDING"
         }
     
+    # Resolve physical file path from multiple possible locations
+    bn = os.path.basename(proof_file)
+    candidates = [
+        proof_file,
+        os.path.join(UPLOAD_DIR, bn),
+        os.path.join(BASE_DIR, "uploads", "samples", bn),
+        os.path.join(BASE_DIR, "..", "uploads", "samples", bn),
+        os.path.join(BASE_DIR, "uploads", bn),
+        os.path.join(BASE_DIR, "..", "uploads", bn)
+    ]
+    resolved_file_path = None
+    for cand in candidates:
+        if cand and os.path.exists(cand):
+            resolved_file_path = cand
+            break
+            
+    if not resolved_file_path:
+        resolved_file_path = proof_file
+
     # 1. File type detection
-    proof_path = complaint.proof_path
-    file_ext = proof_path.rsplit('.', 1)[-1].lower() if '.' in proof_path else "unknown"
+    file_ext = resolved_file_path.rsplit('.', 1)[-1].lower() if '.' in resolved_file_path else "unknown"
     
     file_type_score = 0
     file_type_label = "Unknown"
@@ -1620,13 +1640,13 @@ async def ai_evidence_analysis(
     ocr_text = ""
     ocr_extracted = False
     try:
-        from ocr_service import extract_text_from_file
-        full_path = file_path
-        if os.path.exists(full_path):
-            ocr_text = extract_text_from_file(full_path) or ""
+        from ocr_engine import extract_text
+        if os.path.exists(resolved_file_path):
+            extracted = extract_text(resolved_file_path)
+            ocr_text = extracted.get("text", "") or ""
             ocr_extracted = bool(ocr_text.strip())
-    except Exception:
-        pass
+    except Exception as _e:
+        print(f"OCR extraction warning in ai_evidence_analysis: {_e}")
     
     # 3. Keyword match: complaint category vs document content
     CATEGORY_KEYWORDS = {
@@ -1808,9 +1828,9 @@ def get_ai_performance_metrics(db: Session = Depends(get_db)):
 
     by_bank_list = [{"bank": k, "count": v} for k, v in sorted(bank_counts.items(), key=lambda x: x[1], reverse=True)]
 
-    # Full details of all bot-resolved tickets
+    # Full details of all bot-resolved tickets (capped at latest 100 for swift rendering)
     resolved_tickets = []
-    for c in bot_resolved_complaints:
+    for c in bot_resolved_complaints[-100:]:
         resolved_tickets.append({
             "complaint_id": c.complaint_id,
             "token": c.token,

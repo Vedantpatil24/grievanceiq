@@ -419,11 +419,19 @@ def verify_evidence(
         def _date_in_text(date_str, raw_text):
             """
             Parse the submitted date string into a date object and look for
-            it in the document text under multiple common formats.
+            it in the document text under multiple common formats, including
+            Devanagari numerals (e.g. २५ Oct 2026), ordinal suffixes (25th Oct),
+            and localized date formats.
             Returns (matched: bool, parsed_date_or_None).
             """
             from datetime import datetime
             date_str = date_str.strip()
+
+            # Normalization helper for Devanagari numerals
+            dev_digits = str.maketrans('०१२३४५६७८९', '0123456789')
+            norm_raw_text = raw_text.translate(dev_digits)
+            norm_date_str = date_str.translate(dev_digits)
+
             DATE_FMTS = [
                 '%d/%m/%Y', '%d-%m-%Y', '%Y-%m-%d', '%d.%m.%Y',
                 '%d %b %Y', '%d %B %Y', '%B %d, %Y', '%b %d, %Y',
@@ -431,19 +439,21 @@ def verify_evidence(
             parsed = None
             for fmt in DATE_FMTS:
                 try:
-                    parsed = datetime.strptime(date_str, fmt).date()
+                    parsed = datetime.strptime(norm_date_str, fmt).date()
                     break
                 except ValueError:
                     pass
             if parsed is None:
                 # Can't parse — fall back to digit-sequence comparison
-                date_digits = re.sub(r'[^0-9]', '', date_str)
-                doc_digits  = re.sub(r'[^0-9]', '', raw_text)
+                date_digits = re.sub(r'[^0-9]', '', norm_date_str)
+                doc_digits  = re.sub(r'[^0-9]', '', norm_raw_text)
                 return (date_digits and date_digits in doc_digits), None
 
-            # Try to find any date in the document that equals parsed
+            # 1. Clean ordinal suffixes (25th, 1st, 2nd, 3rd) in text
+            cleaned_text = re.sub(r'(\d{1,2})(st|nd|rd|th)\b', r'\1', norm_raw_text, flags=re.IGNORECASE)
+
+            # 2. Try to find any date in the document that equals parsed
             DATE_PATTERNS = [
-                # Capture entire date string (NOT just first group)
                 (r'\b(\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4})\b',
                  ['%d/%m/%Y','%d-%m-%Y','%d.%m.%Y','%m/%d/%Y','%m-%d-%Y',
                   '%d/%m/%y','%d-%m-%y']),
@@ -455,13 +465,33 @@ def verify_evidence(
                  ['%b %d, %Y','%B %d, %Y','%b %d %Y','%B %d %Y']),
             ]
             for pattern, fmts in DATE_PATTERNS:
-                for candidate in re.findall(pattern, raw_text, flags=re.IGNORECASE):
+                for candidate in re.findall(pattern, cleaned_text, flags=re.IGNORECASE):
                     for fmt in fmts:
                         try:
                             if datetime.strptime(candidate.strip(), fmt).date() == parsed:
                                 return True, parsed
                         except ValueError:
                             pass
+
+            # 3. Flexible check: Day + Month + Year all co-occurring in nearby proximity
+            month_abbr = parsed.strftime('%b').lower()
+            month_full = parsed.strftime('%B').lower()
+            day_str = str(parsed.day)
+            year_str = str(parsed.year)
+
+            words_lower = cleaned_text.lower()
+            if (month_abbr in words_lower or month_full in words_lower) and year_str in words_lower:
+                # Check if day number is present as standalone word or token
+                if re.search(r'\b' + day_str + r'\b', cleaned_text):
+                    return True, parsed
+
+            # 4. Fallback: digit sequence match
+            date_digits = f"{parsed.day:02d}{parsed.month:02d}{parsed.year}"
+            alt_digits = f"{parsed.year}{parsed.month:02d}{parsed.day:02d}"
+            raw_digits = re.sub(r'[^0-9]', '', cleaned_text)
+            if date_digits in raw_digits or alt_digits in raw_digits:
+                return True, parsed
+
             return False, parsed
 
         # ── Bank name ────────────────────────────────────────────────────────

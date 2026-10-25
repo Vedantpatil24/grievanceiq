@@ -53,6 +53,8 @@ export default function AdminDashboard() {
   const [priorityFilter, setPriorityFilter] = useState('');
   const [resModeFilter, setResModeFilter] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 25;
 
   // AI Performance State
   const [aiPerfData, setAiPerfData] = useState(null);
@@ -648,7 +650,7 @@ export default function AdminDashboard() {
                       </td>
                     </tr>
                   ) : (
-                    complaints.map(c => (
+                    complaints.slice((currentPage - 1) * pageSize, currentPage * pageSize).map(c => (
                       <tr key={c.token}>
                         <td>
                           <strong>{c.token}</strong>
@@ -722,6 +724,36 @@ export default function AdminDashboard() {
                 </tbody>
               </table>
             </div>
+
+            {/* PAGINATION CONTROLS */}
+            {complaints.length > pageSize && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '16px', padding: '10px 14px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.85rem' }}>
+                <span style={{ color: '#64748b' }}>
+                  Showing <strong>{((currentPage - 1) * pageSize) + 1}</strong> to <strong>{Math.min(currentPage * pageSize, complaints.length)}</strong> of <strong>{complaints.length}</strong> complaints
+                </span>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button 
+                    disabled={currentPage === 1}
+                    onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                    className="btn btn-outline"
+                    style={{ padding: '4px 12px', fontSize: '0.8rem', opacity: currentPage === 1 ? 0.5 : 1 }}
+                  >
+                    ← Previous
+                  </button>
+                  <span style={{ display: 'flex', alignItems: 'center', padding: '0 8px', fontWeight: '700', color: '#1e40af' }}>
+                    Page {currentPage} of {Math.ceil(complaints.length / pageSize)}
+                  </span>
+                  <button 
+                    disabled={currentPage >= Math.ceil(complaints.length / pageSize)}
+                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, Math.ceil(complaints.length / pageSize)))}
+                    className="btn btn-outline"
+                    style={{ padding: '4px 12px', fontSize: '0.8rem', opacity: currentPage >= Math.ceil(complaints.length / pageSize) ? 0.5 : 1 }}
+                  >
+                    Next →
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
