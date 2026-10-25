@@ -463,7 +463,7 @@ export const translations = {
   }
 ,
   mr: {
-    ...translations.hi,
+    
     lang_label: 'भाषा / Language',
     lang_en: 'English',
     lang_hi: 'हिंदी (Hindi)',
@@ -484,7 +484,7 @@ export const translations = {
     refresh: 'ताजेतवाने करा'
   },
   ta: {
-    ...translations.hi,
+    
     lang_label: 'மொழி / Language',
     lang_en: 'English',
     lang_hi: 'हिंदी (Hindi)',
@@ -505,7 +505,7 @@ export const translations = {
     refresh: 'புதுப்பி'
   },
   gu: {
-    ...translations.hi,
+    
     lang_label: 'ભાષા / Language',
     lang_en: 'English',
     lang_hi: 'हिंदी (Hindi)',
