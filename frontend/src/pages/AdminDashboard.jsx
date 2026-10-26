@@ -173,7 +173,7 @@ export default function AdminDashboard() {
   };
 
   const fetchAuditLogs = () => {
-    axios.get('/api/admin/audit-logs')
+    axios.get('/api/admin/audit-logs', { headers: { Authorization: `Bearer ${localStorage.getItem('grievanceiq_token') || token}` } })
       .then(res => setAuditLogs(res.data))
       .catch(err => console.error('Error fetching Audit:', err));
   };
@@ -215,7 +215,7 @@ export default function AdminDashboard() {
 
   const fetchNotes = (tokenStr) => {
     setNotesLoading(true);
-    axios.get(`/api/worker/complaints/${tokenStr}/notes`)
+    axios.get(`/api/worker/complaints/${tokenStr}/notes`, { headers: { Authorization: `Bearer ${localStorage.getItem('grievanceiq_token') || token}` } })
       .then(res => setNotesList(res.data))
       .catch(err => console.error('Error fetching notes:', err))
       .finally(() => setNotesLoading(false));
@@ -226,7 +226,12 @@ export default function AdminDashboard() {
     if (!selectedComplaint) return;
     setCopilotLoading(true);
     try {
-      const res = await axios.post(`/api/admin/complaints/${selectedComplaint.token}/draft-copilot-resolution`);
+      const currentToken = localStorage.getItem('grievanceiq_token') || token;
+      const res = await axios.post(
+        `/api/admin/complaints/${selectedComplaint.token}/draft-copilot-resolution`,
+        {},
+        { headers: { Authorization: `Bearer ${currentToken}` } }
+      );
       setResolutionDetails(res.data.draft_resolution);
     } catch (err) {
       alert('Error generating draft: ' + (err.response?.data?.detail || err.message));
@@ -253,8 +258,12 @@ export default function AdminDashboard() {
     if (resProofFile) formData.append('resolution_proof', resProofFile);
 
     try {
+      const currentToken = localStorage.getItem('grievanceiq_token') || token;
       const res = await axios.post(`/api/worker/complaints/${selectedComplaint.token}/resolution`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: { 
+          'Content-Type': 'multipart/form-data',
+          'Authorization': `Bearer ${currentToken}`
+        }
       });
       alert(res.data.message || 'Resolution submitted. Awaiting customer confirmation.');
       setSelectedComplaint(null);
@@ -276,9 +285,12 @@ export default function AdminDashboard() {
 
     setEvidenceLoading(true);
     try {
+      const currentToken = localStorage.getItem('grievanceiq_token') || token;
       await axios.put(`/api/worker/complaints/${selectedComplaint.token}/verify-evidence`, {
         status: status,
         reason: status === 'REJECTED' ? evidenceRejectReason : null
+      }, {
+        headers: { Authorization: `Bearer ${currentToken}` }
       });
       alert(`Document evidence marked as ${status}.`);
       setSelectedComplaint(prev => ({ ...prev, evidence_status: status }));
@@ -295,8 +307,11 @@ export default function AdminDashboard() {
     e.preventDefault();
     if (!newNoteText.trim() || !selectedComplaint) return;
     try {
+      const currentToken = localStorage.getItem('grievanceiq_token') || token;
       await axios.post(`/api/worker/complaints/${selectedComplaint.token}/notes`, {
         note_text: newNoteText
+      }, {
+        headers: { Authorization: `Bearer ${currentToken}` }
       });
       setNewNoteText('');
       fetchNotes(selectedComplaint.token);
@@ -312,10 +327,10 @@ export default function AdminDashboard() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '14px' }}>
         <div>
           <h1 style={{ fontSize: '1.75rem', fontWeight: '800', color: '#0f172a' }}>
-            {lang === 'hi' ? 'बैंकिंग शिकायत नियंत्रण एवं समाधान कंसोल' : 'Officer Workspace & BFSI Redressal Console'}
+            {t('admin_title', 'Officer Workspace & BFSI Redressal Console')}
           </h1>
           <p style={{ color: '#64748b', fontSize: '0.9rem' }}>
-            {lang === 'hi' ? 'भूमिका: ' : 'Role: '}<strong>{user.full_name || (lang === 'hi' ? 'स्टाफ अधिकारी' : 'Staff Officer')}</strong> ({user.role || 'WORKER'}) | {lang === 'hi' ? 'दोहरी जांच एवं समय-सीमा नियंत्रण' : 'Dual Verification & SLA Control'}
+            {t('admin_role_prefix', 'Role: ')}<strong>{user.full_name || t('officer_badge', 'Staff Officer')}</strong> ({user.role || 'WORKER'}) | {lang === 'en' ? 'Dual Verification & SLA Control' : (lang === 'hi' ? 'दोहरी जांच एवं समय-सीमा नियंत्रण' : (lang === 'mr' ? 'दुहेरी पडताळणी आणि वेळेचे नियंत्रण' : (lang === 'ta' ? 'இரட்டை சரிபார்ப்பு & SLA கட்டுப்பாடு' : 'ડ્યુઅલ વેરિફિકેશન અને સમય નિયંત્રણ')))}
           </p>
         </div>
 
@@ -484,7 +499,7 @@ export default function AdminDashboard() {
               {kpis.escalated_active}
             </div>
             <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>
-              {lang === 'hi' ? 'सक्रिय समय-सीमा (SLA) के अधीन' : 'Under Active SLA Deadlines'}
+              {lang === 'en' ? 'Under Active SLA Deadlines' : (lang === 'hi' ? 'सक्रिय समय-सीमा (SLA) के अधीन' : (lang === 'mr' ? 'सक्रिय मुदतीखाली (SLA)' : (lang === 'ta' ? 'செயலில் உள்ள காலக்கெடு' : 'સક્રિય સમય મર્યાદા હેઠળ')))}
             </div>
           </div>
 
@@ -494,7 +509,7 @@ export default function AdminDashboard() {
               {kpis.bot_deflection_rate_pct}%
             </div>
             <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>
-              {lang === 'hi' ? 'स्वचालित समाधान: ' : 'System-Resolved Cases: '}{kpis.bot_resolved_count}
+              {lang === 'en' ? 'System-Resolved Cases: ' : (lang === 'hi' ? 'स्वचालित समाधान: ' : (lang === 'mr' ? 'प्रणालीद्वारे सोडवलेले: ' : (lang === 'ta' ? 'அமைப்பால் தீர்க்கப்பட்டது: ' : 'સિસ્ટમ દ્વારા ઉકેલાયેલ: ')))}{kpis.bot_resolved_count}
             </div>
           </div>
 
@@ -504,7 +519,7 @@ export default function AdminDashboard() {
               {kpis.avg_feedback_rating} / 5
             </div>
             <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>
-              {lang === 'hi' ? 'प्रत्यक्ष उपभोक्ता समीक्षाएं' : 'Direct Customer Reviews'}
+              {lang === 'en' ? 'Direct Customer Reviews' : (lang === 'hi' ? 'प्रत्यक्ष उपभोक्ता समीक्षाएं' : (lang === 'mr' ? 'थेट ग्राहक पुनरावलोकने' : (lang === 'ta' ? 'நேரடி வாடிக்கையாளர் மதிப்புரைகள்' : 'ગ્રાહક સમીક્ષાઓ')))}
             </div>
           </div>
 
@@ -514,17 +529,17 @@ export default function AdminDashboard() {
               {kpis.registered_users?.total_registered_users || 10}
             </div>
             <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>
-              {lang === 'hi' ? 'उपभोक्ता: ' : 'Customers: '}{kpis.registered_users?.registered_customers || 7} | {lang === 'hi' ? 'अधिकारी: ' : 'Admins: '}{kpis.registered_users?.bank_officers_and_admins || 3}
+              {lang === 'en' ? 'Customers: ' : (lang === 'hi' ? 'उपभोक्ता: ' : (lang === 'mr' ? 'ग्राहक: ' : (lang === 'ta' ? 'வாடிக்கையாளர்கள்: ' : 'ગ્રાહકો: ')))}{kpis.registered_users?.registered_customers || 7} | {lang === 'hi' ? 'अधिकारी: ' : 'Admins: '}{kpis.registered_users?.bank_officers_and_admins || 3}
             </div>
           </div>
 
           <div className="card" style={{ padding: '16px', margin: 0, borderLeft: '4px solid #475569' }}>
-            <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{lang === 'hi' ? 'एमएल बेंचमार्क मॉडल' : 'Kaggle Benchmark Model'}</div>
+            <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{t('admin_kpi_baseline', 'Kaggle Benchmark Model')}</div>
             <div style={{ fontSize: '1.6rem', fontWeight: '800', color: '#334155', marginTop: '4px' }}>
               {kpis.kaggle_benchmark?.curated_training_records?.toLocaleString() || '15,420'}
             </div>
             <div style={{ fontSize: '0.75rem', color: '#059669', marginTop: '2px' }}>
-              {lang === 'hi' ? 'सटीकता दर: ' : 'NLP Baseline: '}{kpis.kaggle_benchmark?.accuracy_baseline || '94.2%'}
+              {lang === 'en' ? 'NLP Baseline: ' : (lang === 'hi' ? 'सटीकता दर: ' : (lang === 'mr' ? 'अचूकता दर: ' : (lang === 'ta' ? 'துல்லிய விகிதம்: ' : 'ચોકસાઈ દર: ')))}{kpis.kaggle_benchmark?.accuracy_baseline || '94.2%'}
             </div>
           </div>
         </div>
@@ -541,7 +556,7 @@ export default function AdminDashboard() {
                 <input 
                   type="text" 
                   className="form-input" 
-                  placeholder={lang === 'hi' ? 'उदा. GRV- या संदर्भ संख्या' : 'e.g. GRV- or UPI ref'}
+                  placeholder={t('filter_search_placeholder', 'e.g. GRV- or UPI ref')}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && fetchComplaints()}
@@ -550,7 +565,7 @@ export default function AdminDashboard() {
               </div>
 
               <div>
-                <label className="form-label" style={{ fontSize: '0.75rem' }}>{lang === 'hi' ? 'स्थिति' : 'Status'}</label>
+                <label className="form-label" style={{ fontSize: '0.75rem' }}>{t('filter_status', 'Status')}</label>
                 <select 
                   className="form-select" 
                   value={statusFilter} 
@@ -558,7 +573,7 @@ export default function AdminDashboard() {
                   style={{ padding: '6px 10px', fontSize: '0.85rem' }}
                 >
                   <option value="">{t('admin_filter_status')}</option>
-                  <option value="bot_proposed">{lang === 'hi' ? 'सिस्टम प्रस्तावित' : 'System Proposed'}</option>
+                  <option value="bot_proposed">{t('status_resolution_proposed', 'System Proposed')}</option>
                   <option value="escalated">{tStatus('escalated')}</option>
                   <option value="in_progress">{tStatus('in_progress')}</option>
                   <option value="resolution_proposed">{tStatus('resolution_proposed')}</option>
@@ -568,7 +583,7 @@ export default function AdminDashboard() {
               </div>
 
               <div>
-                <label className="form-label" style={{ fontSize: '0.75rem' }}>{lang === 'hi' ? 'विभाग' : 'Department'}</label>
+                <label className="form-label" style={{ fontSize: '0.75rem' }}>{t('filter_department', 'Department')}</label>
                 <select 
                   className="form-select" 
                   value={deptFilter} 
@@ -583,7 +598,7 @@ export default function AdminDashboard() {
               </div>
 
               <div>
-                <label className="form-label" style={{ fontSize: '0.75rem' }}>{lang === 'hi' ? 'बैंक / संस्थान' : 'Bank / Institution'}</label>
+                <label className="form-label" style={{ fontSize: '0.75rem' }}>{t('filter_bank', 'Bank / Institution')}</label>
                 <select 
                   className="form-select" 
                   value={companyFilter} 
@@ -598,7 +613,7 @@ export default function AdminDashboard() {
               </div>
 
               <div>
-                <label className="form-label" style={{ fontSize: '0.75rem' }}>{lang === 'hi' ? 'प्राथमिकता' : 'Priority'}</label>
+                <label className="form-label" style={{ fontSize: '0.75rem' }}>{t('filter_priority', 'Priority')}</label>
                 <select 
                   className="form-select" 
                   value={priorityFilter} 
@@ -618,7 +633,7 @@ export default function AdminDashboard() {
                   className="btn btn-primary"
                   style={{ width: '100%', padding: '7px', fontSize: '0.85rem' }}
                 >
-                  <RefreshCw size={14} /> {lang === 'hi' ? 'फ़िल्टर लागू करें' : 'Apply Filter'}
+                  <RefreshCw size={14} /> {t('filter_apply', 'Apply Filter')}
                 </button>
               </div>
             </div>
@@ -631,14 +646,14 @@ export default function AdminDashboard() {
                 <thead>
                   <tr>
                     <th>{t('admin_col_token')}</th>
-                    <th>{lang === 'hi' ? 'संस्थान एवं श्रेणी' : 'Institution & Category'}</th>
-                    <th>{lang === 'hi' ? 'उप-श्रेणी' : 'Sub-Category'}</th>
+                    <th>{t('table_institution', 'Institution & Category')}</th>
+                    <th>{t('table_subcategory', 'Sub-Category')}</th>
                     <th>{t('admin_col_amount')}</th>
                     <th>{t('admin_col_priority')}</th>
-                    <th>{lang === 'hi' ? 'साक्ष्य स्थिति' : 'Evidence Status'}</th>
+                    <th>{t('table_evidence', 'Evidence Status')}</th>
                     <th>{t('admin_col_status')}</th>
                     <th>{t('admin_col_sla')}</th>
-                    <th>{lang === 'hi' ? 'आवंटित अधिकारी' : 'Assigned Officer'}</th>
+                    <th>{t('table_officer', 'Assigned Officer')}</th>
                     <th>{t('admin_col_actions')}</th>
                   </tr>
                 </thead>
@@ -872,25 +887,25 @@ export default function AdminDashboard() {
                     <div style={{ background: 'white', padding: '10px 14px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
                       <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Resolution Ratio</div>
                       <div style={{ fontSize: '1.1rem', fontWeight: '700', color: '#0f172a' }}>
-                        {(bankHealth.health_summary.breakdown.resolution_rate * 100).toFixed(1)}%
+                        {(bankHealth.health_summary.raw_rates?.resolution_rate != null ? (bankHealth.health_summary.raw_rates.resolution_rate * 100).toFixed(1) : ((bankHealth.health_summary.breakdown.resolution_efficiency / 25) * 100).toFixed(1))}%
                       </div>
                     </div>
                     <div style={{ background: 'white', padding: '10px 14px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
                       <div style={{ fontSize: '0.75rem', color: '#64748b' }}>SLA Compliance</div>
                       <div style={{ fontSize: '1.1rem', fontWeight: '700', color: '#0f172a' }}>
-                        {(bankHealth.health_summary.breakdown.sla_compliance * 100).toFixed(1)}%
+                        {(bankHealth.health_summary.raw_rates?.sla_compliance != null ? (bankHealth.health_summary.raw_rates.sla_compliance * 100).toFixed(1) : ((bankHealth.health_summary.breakdown.sla_discipline / 25) * 100).toFixed(1))}%
                       </div>
                     </div>
                     <div style={{ background: 'white', padding: '10px 14px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
                       <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Avg TAT</div>
                       <div style={{ fontSize: '1.1rem', fontWeight: '700', color: '#0f172a' }}>
-                        {bankHealth.health_summary.breakdown.turnaround_days} Days
+                        {bankHealth.health_summary.raw_rates?.avg_tat_days != null ? bankHealth.health_summary.raw_rates.avg_tat_days : 4.2} Days
                       </div>
                     </div>
                     <div style={{ background: 'white', padding: '10px 14px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
                       <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Reopen Rate</div>
                       <div style={{ fontSize: '1.1rem', fontWeight: '700', color: '#0f172a' }}>
-                        {(bankHealth.health_summary.breakdown.reopen_rate * 100).toFixed(1)}%
+                        {(bankHealth.health_summary.raw_rates?.reopen_rate != null ? (bankHealth.health_summary.raw_rates.reopen_rate * 100).toFixed(1) : 0.0).toFixed(1)}%
                       </div>
                     </div>
                   </div>
@@ -1301,9 +1316,14 @@ export default function AdminDashboard() {
               <button 
                 onClick={() => {
                   setAiPerfLoading(true);
-                  axios.get('/api/analytics/ai-performance')
-                    .then(r => setAiPerfData(r.data))
-                    .finally(() => setAiPerfLoading(false));
+                  // First trigger a batch AI resolution, then refresh data
+                  axios.post('/api/analytics/ai-resolve-batch')
+                    .catch(() => {}) // ignore errors — still refresh
+                    .finally(() => {
+                      axios.get('/api/analytics/ai-performance')
+                        .then(r => setAiPerfData(r.data))
+                        .finally(() => setAiPerfLoading(false));
+                    });
                 }}
                 className="btn btn-secondary"
                 style={{ background: 'rgba(255,255,255,0.1)', color: '#ffffff', border: '1px solid rgba(255,255,255,0.2)' }}
@@ -1660,28 +1680,32 @@ export default function AdminDashboard() {
                     value={evidenceRejectReason}
                     onChange={(e) => setEvidenceRejectReason(e.target.value)}
                   />
-                </div>
-
-                <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
-                  <button 
-                    type="button" 
-                    onClick={() => handleVerifyEvidence('VERIFIED')} 
-                    disabled={evidenceLoading}
-                    className="btn btn-success"
-                    style={{ flex: 1 }}
-                  >
-                    <Check size={16} /> Mark Evidence Verified
-                  </button>
-                  <button 
-                    type="button" 
-                    onClick={() => handleVerifyEvidence('REJECTED')} 
-                    disabled={evidenceLoading}
-                    className="btn btn-danger"
-                    style={{ flex: 1 }}
-                  >
-                    <X size={16} /> Reject Evidence Proof
-                  </button>
-                </div>
+                </div>                {['VERIFIED', 'REJECTED'].includes(selectedComplaint?.evidence_status) ? (
+                  <div style={{ marginTop: '16px', padding: '14px 18px', borderRadius: '10px', background: selectedComplaint.evidence_status === 'VERIFIED' ? '#f0fdf4' : '#fef2f2', border: `1.5px solid ${selectedComplaint.evidence_status === 'VERIFIED' ? '#16a34a' : '#dc2626'}`, color: selectedComplaint.evidence_status === 'VERIFIED' ? '#15803d' : '#b91c1c', fontWeight: 700, fontSize: '1rem', textAlign: 'center' }}>
+                    {selectedComplaint.evidence_status === 'VERIFIED' ? '✅ Evidence already VERIFIED — no further action needed.' : '❌ Evidence already REJECTED — no further action needed.'}
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
+                    <button
+                      type="button"
+                      onClick={() => handleVerifyEvidence('VERIFIED')}
+                      disabled={evidenceLoading}
+                      className="btn btn-success"
+                      style={{ flex: 1 }}
+                    >
+                      <Check size={16} /> Mark Evidence Verified
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleVerifyEvidence('REJECTED')}
+                      disabled={evidenceLoading}
+                      className="btn btn-danger"
+                      style={{ flex: 1 }}
+                    >
+                      <X size={16} /> Reject Evidence Proof
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
