@@ -274,6 +274,7 @@ export default function SubmitComplaint() {
     }
 
     const storedUser = JSON.parse(localStorage.getItem('grievanceiq_user') || '{}');
+    const token = localStorage.getItem('grievanceiq_token');
     if (storedUser && storedUser.user_id) {
       formData.append('customer_id', storedUser.user_id);
     }
@@ -283,9 +284,9 @@ export default function SubmitComplaint() {
     }
 
     try {
-      const res = await axios.post('/api/complaints/submit', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
+      const headers = { 'Content-Type': 'multipart/form-data' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await axios.post('/api/complaints/submit', formData, { headers });
       setSubmittedData(res.data);
     } catch (err) {
       if (err.response && err.response.status === 422) {

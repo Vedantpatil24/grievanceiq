@@ -191,15 +191,15 @@ GRIEVANCE_ACTION_VERBS_EN = {
     "not reflected", "not showing", "not updated", "not cleared", "did not get",
     "never received", "never got", "debited but", "deducted but", "paid but",
     "payment done but", "done from my side but", "sent but", "transferred but",
-    "still pending", "pending credit", "pending transfer", "stuck", "failed to credit",
+    "still pending", "pending credit", "pending transfer", "stuck", "failed to credit", "fail", "cut",
     "failed transfer", "no update", "no response", "waiting for refund", "money cut",
     "amount cut", "balance deducted", "cut from account", "unresolved"
 }
 GRIEVANCE_ACTION_VERBS_HINGLISH = {
-    "kat gaye", "kat gaya", "kaate", "deduct hua", "deduct ho gaya", "nahi nikla",
+    "kat gaye", "kat gaya", "kaate", "cut ho gaye", "cut ho gaya", "cut gaye", "cut gaya", "paise cut", "fail dikha", "fail hua", "fail ho gaya", "deduct hua", "deduct ho gaya", "nahi nikla",
     "nahi nikle", "nahi mila", "nahi mile", "nahi aaya", "nahi aaye", "chori",
     "kho gaya", "kho gaye", "band ho gaya", "block ho gaya", "block karo",
-    "wapas karo", "refund chahiye", "pareshan", "dikkat", "problem", "complaint",
+    "wapas karo", "refund chahiye", "pareshan", "dikkat", "problem", "complaint", "kripya madad", "paise wapas", "fas gaya", "atak gaya", "fas gaye", "help kijiye", "dhokha", "loss",
     "fraud hua", "galat", "dhoka", "galti", "jaldi", "turant", "zaruri",
     "nahi ho raha", "nahi ho rahi", "issue", "mushkil", "paise nahi", "paise kat"
 }
