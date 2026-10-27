@@ -107,9 +107,7 @@ export default function Navbar() {
             <option value="en" style={{ background: '#0f172a', color: '#fff' }}>English</option>
             <option value="hi" style={{ background: '#0f172a', color: '#fff' }}>हिंदी (Hindi)</option>
             <option value="mr" style={{ background: '#0f172a', color: '#fff' }}>मराठी (Marathi)</option>
-            <option value="ta" style={{ background: '#0f172a', color: '#fff' }}>தமிழ் (Tamil)</option>
-            <option value="gu" style={{ background: '#0f172a', color: '#fff' }}>ગુજરાતી (Gujarati)</option>
-          </select>
+                                  </select>
         </div>
 
                 {/* User Notifications */}

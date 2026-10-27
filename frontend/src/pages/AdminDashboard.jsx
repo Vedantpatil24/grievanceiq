@@ -30,10 +30,10 @@ export default function AdminDashboard() {
   const [companies, setCompanies] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(false);
-
   // Bank Health & Intelligence States
   const [bankHealth, setBankHealth] = useState(null);
   const [healthLoading, setHealthLoading] = useState(false);
+  const [healthError, setHealthError] = useState(null);
 
   // What-If Simulation States
   const [simInputs, setSimInputs] = useState({
@@ -98,8 +98,10 @@ export default function AdminDashboard() {
       axios.get('/api/companies'),
       axios.get('/api/departments'),
       axios.get('/api/analytics/overview'),
-      axios.get('/api/analytics/trends')
-    ]).then(([compRes, deptRes, kpiRes, trendRes]) => {
+      axios.get('/api/analytics/trends'),
+      axios.get('/api/intelligence/bank-health')
+    ]).then(([compRes, deptRes, kpiRes, trendRes, healthRes]) => {
+      if (healthRes.data && healthRes.data.health_summary) setBankHealth(healthRes.data);
       setCompanies(compRes.data);
       setDepartments(deptRes.data);
       setKpis(kpiRes.data);
@@ -130,12 +132,23 @@ export default function AdminDashboard() {
   useEffect(() => {
     if (token) fetchComplaints();
   }, [statusFilter, deptFilter, companyFilter, priorityFilter, resModeFilter]);
-
   const fetchBankHealth = () => {
     setHealthLoading(true);
-    axios.get('/api/intelligence/bank-health')
-      .then(res => setBankHealth(res.data))
-      .catch(err => console.error('Error fetching bank health:', err))
+    setHealthError(null);
+    const currentToken = localStorage.getItem('grievanceiq_token') || token;
+    const headers = currentToken ? { Authorization: `Bearer ${currentToken}` } : {};
+    axios.get('/api/intelligence/bank-health', { headers })
+      .then(res => {
+        if (res.data && res.data.health_summary) {
+          setBankHealth(res.data);
+        } else {
+          setHealthError('Invalid intelligence response structure');
+        }
+      })
+      .catch(err => {
+        console.error('Error fetching bank health:', err);
+        setHealthError(err.response?.data?.detail || err.message || 'Unable to load predictive intelligence metrics');
+      })
       .finally(() => setHealthLoading(false));
   };
 
@@ -182,7 +195,9 @@ export default function AdminDashboard() {
     setActiveTab(tab);
     if (tab === 'kb') fetchKbArticles();
     if (tab === 'audit') fetchAuditLogs();
-    if (tab === 'intelligence') fetchBankHealth();
+    if (tab === 'intelligence') {
+      fetchBankHealth();
+    }
     if (tab === 'whatif' && !simResults) {
       fetchSimulationContext();
       runSimulation();
@@ -389,9 +404,7 @@ export default function AdminDashboard() {
             <option value="en">English</option>
             <option value="hi">हिंदी (Hindi)</option>
             <option value="mr">मराठी (Marathi)</option>
-            <option value="ta">தமிழ் (Tamil)</option>
-            <option value="gu">ગુજરાતી (Gujarati)</option>
-          </select>
+                                  </select>
         </div>
 
         {/* TABS */}
@@ -419,7 +432,7 @@ export default function AdminDashboard() {
             <BarChart3 size={15} /> {t('admin_tab_analytics')}
           </button>
           <button 
-            onClick={() => handleTabChange('intelligence')}
+            onClick={() => { setActiveTab('intelligence'); fetchBankHealth(); }}
             className="btn"
             style={{ 
               background: activeTab === 'intelligence' ? 'white' : 'transparent',
@@ -774,7 +787,14 @@ export default function AdminDashboard() {
       )}
 
       {/* TAB 2: HISTORICAL ANALYTICS & TRENDS */}
-      {activeTab === 'analytics' && trends && (
+      {activeTab === 'analytics' && (
+        <div>
+          {!trends ? (
+            <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
+              <Activity size={32} color="#2563eb" style={{ animation: 'spin 1s infinite', margin: '0 auto' }} />
+              <div style={{ marginTop: '12px', color: '#64748b' }}>Loading Comprehensive Analytics & Volume Trends...</div>
+            </div>
+          ) : (
         <div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
             <div className="card">
@@ -850,15 +870,28 @@ export default function AdminDashboard() {
             </div>
           </div>
         </div>
+          )}
+        </div>
       )}
 
       {/* TAB 3: BANK HEALTH SCORE & EARLY WARNING SYSTEM */}
       {activeTab === 'intelligence' && (
         <div>
-          {healthLoading || !bankHealth ? (
+          {healthLoading ? (
             <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
               <Activity size={32} color="#2563eb" style={{ animation: 'spin 1s infinite' }} />
               <div style={{ marginTop: '12px', color: '#64748b' }}>Analyzing Bank Redressal Performance Metrics...</div>
+            </div>
+          ) : healthError || !bankHealth ? (
+            <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
+              <AlertTriangle size={36} color="#e11d48" style={{ margin: '0 auto 12px' }} />
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0f172a' }}>Failed to Load Predictive Intelligence</h3>
+              <p style={{ color: '#64748b', fontSize: '0.9rem', maxWidth: '420px', margin: '8px auto 16px' }}>
+                {healthError || 'Could not retrieve bank health scores. Please check backend network connection.'}
+              </p>
+              <button onClick={fetchBankHealth} className="btn btn-primary" style={{ padding: '8px 18px' }}>
+                Retry Assessment
+              </button>
             </div>
           ) : (
             <div>
@@ -905,7 +938,7 @@ export default function AdminDashboard() {
                     <div style={{ background: 'white', padding: '10px 14px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
                       <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Reopen Rate</div>
                       <div style={{ fontSize: '1.1rem', fontWeight: '700', color: '#0f172a' }}>
-                        {(bankHealth.health_summary.raw_rates?.reopen_rate != null ? (bankHealth.health_summary.raw_rates.reopen_rate * 100).toFixed(1) : 0.0).toFixed(1)}%
+                        {(bankHealth.health_summary.raw_rates?.reopen_rate != null ? (Number(bankHealth.health_summary.raw_rates.reopen_rate) * 100).toFixed(1) : '0.0')}%
                       </div>
                     </div>
                   </div>

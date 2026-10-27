@@ -270,6 +270,7 @@ export default function EmployeeDashboard() {
               >
                 <option value="en" style={{ background: '#0f172a', color: '#fff' }}>English</option>
                 <option value="hi" style={{ background: '#0f172a', color: '#fff' }}>हिंदी (Hindi)</option>
+                <option value="mr" style={{ background: '#0f172a', color: '#fff' }}>मराठी (Marathi)</option>
               </select>
             </div>
 

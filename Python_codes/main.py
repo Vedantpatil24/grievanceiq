@@ -1037,7 +1037,9 @@ def list_admin_complaints(
             (Complaint.description.ilike(search_fmt))
         )
 
-    complaints = query.order_by(Complaint.complaint_id.desc()).all()
+    # Limit to maximum 300 to ensure instantaneous UI response without memory choke on 15k datasets
+    limit_val = min(limit or 150, 300)
+    complaints = query.order_by(Complaint.complaint_id.desc()).limit(limit_val).all()
 
     result = []
     for c in complaints:
@@ -1985,12 +1987,12 @@ def get_what_if_simulation(payload: SimulationIn, db: Session = Depends(get_db))
         q = q.filter(Complaint.company_id == payload.company_id)
         bank = db.query(Company).filter(Company.company_id == payload.company_id).first()
         if bank:
-            bank_name = bank.name
+            bank_name = bank.company_name
     if payload.department_id:
         q = q.filter(Complaint.department_id == payload.department_id)
         dept = db.query(Department).filter(Department.department_id == payload.department_id).first()
         if dept:
-            dept_name = dept.name
+            dept_name = dept.department_name
     
     wq = db.query(User).filter(User.role.in_(["officer", "staff"]), User.is_active == True)
     if payload.department_id:
@@ -2414,3 +2416,106 @@ def get_complaint_document(token: str, db: Session = Depends(get_db)):
         media_type = "image/jpeg"
         
     return FileResponse(resolved_path, media_type=media_type, filename=bn)
+
+
+class NovaChatInput(BaseModel):
+    query: str
+
+@app.post("/api/ai/assistant-chat")
+def nova_assistant_chat(payload: NovaChatInput, db: Session = Depends(get_db)):
+    """
+    Intelligent dynamic assistant endpoint capable of answering application questions,
+    regulatory procedures, user account inquiries, Hinglish queries, and operational statistics.
+    """
+    import re
+    q = payload.query.strip().lower()
+
+    # 1. Direct Ticket Token lookup
+    match = re.search(r'(grv-d{4}-d{5})', q)
+    if match:
+        token_found = match.group(1).upper()
+        comp = db.query(Complaint).filter(Complaint.token == token_found).first()
+        if comp:
+            b_name = comp.company.company_name if comp.company else "Bank"
+            dept_name = comp.department.department_name if comp.department else "Desk"
+            return {
+                "reply": f"Found Ticket {comp.token}: Status is '{comp.status.replace('_', ' ').title()}' assigned to {b_name} ({dept_name}). Disputed Amount: ₹{comp.amount or 0:,.2f}. You can view the full milestone audit log on the 'Track Complaint' tab."
+            }
+        else:
+            return {
+                "reply": f"Ticket token '{token_found}' was not found in the ledger. Please ensure the token format is correct (e.g. GRV-2026-15011)."
+            }
+
+    # 2. Platform live metrics & counts
+    if any(k in q for k in ["total complaint", "how many", "database", "stats", "count", "record", "kitne complaint"]):
+        total = db.query(Complaint).count()
+        resolved = db.query(Complaint).filter(Complaint.status == "resolved").count()
+        bot_res = db.query(Complaint).filter(Complaint.resolution_mode == "BOT").count()
+        return {
+            "reply": f"GrievanceIQ is actively processing {total:,} banking complaints across India. Over {resolved:,} cases have been settled, with {bot_res:,} resolved autonomously by Nova-AI Sentinel in under 30 seconds."
+        }
+
+    # 3. ATM cash withdrawal failures & debits
+    if any(k in q for k in ["atm", "cash nahi", "paisa cut", "paise cut", "atm fail", "dispense", "cash not dispensed", "machine"]):
+        return {
+            "reply": "For ATM cash failure (account debited but cash not dispensed): 1. Note the ATM terminal ID and transaction date/time. 2. File a complaint under 'Cards & ATM Services'. 3. Under RBI rules (Circular DPSS.PD.No.2632/2011), the bank must auto-reverse within 5 calendar days (T+5), failing which they must pay ₹100 per day compensation."
+        }
+
+    # 4. UPI, IMPS, and Digital Transfer failures
+    if any(k in q for k in ["upi", "imps", "neft", "gpay", "phonepe", "paytm", "transfer", "pending", "fas gaya", "atak gaya"]):
+        return {
+            "reply": "For failed UPI/IMPS payments: If funds were debited from your bank but not credited to the beneficiary, the transaction is held in the NPCI switch. The bank has T+1 day to reverse it. If unresolved after 24 hours, submit a grievance on this portal with your 12-digit UTR/RRN number for instant automated reconciliation."
+        }
+
+    # 5. Turnaround Time (TAT), RBI rules, Delay Compensation
+    if any(k in q for k in ["rbi", "sla", "turnaround", "tat", "compensation", "ombudsman", "delay", "days", "fine", "harjana", "rule"]):
+        return {
+            "reply": "RBI Master Direction on Turnaround Time (TAT) Framework: Failed ATM withdrawals and card POS charges must be resolved within T+5 days. Failed UPI transfers must be reversed within T+1 day. If the bank exceeds these timelines without customer fault, you are entitled to statutory compensation of ₹100 per day credited directly to your bank account."
+        }
+
+    # 6. Credentials & Logins
+    if any(k in q for k in ["officer", "staff", "admin", "login", "password", "credential", "id"]):
+        return {
+            "reply": "Portal Credentials: Admin Console is admin@grievanceiq.in / admin123. Banking Officers use password emp123 (pooja.sharma@grievanceiq.in for Card Disputes, rahul.nair@grievanceiq.in for Loan Servicing, vikram.mehta@grievanceiq.in for Retail Banking). Customer accounts can be created on the Register page."
+        }
+
+    # 7. Document Proof & OCR Verification
+    if any(k in q for k in ["document", "proof", "pdf", "png", "receipt", "evidence", "statement", "screenshot", "file"]):
+        return {
+            "reply": "Accepted proof formats include Bank Statements, ATM advice receipts, Debit SMS screenshots, and POS terminal charge slips in PNG, JPG, or PDF formats. Our autonomous 5-Field OCR inspects the transaction timestamp, disputed amount, bank name, and reference ID to guarantee authenticity."
+        }
+
+    # 8. What-If Simulation & Analytics
+    if any(k in q for k in ["what if", "simulation", "simulator", "predictive", "workforce", "analytics"]):
+        return {
+            "reply": "The What-If Simulation and Predictive Intelligence engine in the Admin Console allows financial executives to simulate how changes in branch officer workforce or seasonal complaint volume surges impact average Turnaround Time (TAT) and prevent SLA breaches using operational mathematical models."
+        }
+
+    # 9. How to lodge / submit a grievance
+    if any(k in q for k in ["submit", "file", "lodge", "register", "kaise kare", "shikayat", "complaint"]):
+        return {
+            "reply": "To lodge a dispute: Click 'Submit Complaint' in the top navigation. Pick your bank (SBI, HDFC, ICICI, Axis, PNB), select the service department, enter the disputed amount and reference ID (UTR/Card #), describe your issue, and attach your receipt. You will receive an immediate statutory tracking token."
+        }
+
+    # 10. How to track existing ticket
+    if any(k in q for k in ["track", "kaha hai", "check progress", "status", "dekhe"]):
+        return {
+            "reply": "To track your grievance: Visit the 'Track Complaint' tab and input your ticket token (e.g. GRV-2026-15011). You can review real-time milestone transitions, assigned officer details, live SLA countdown, and download official settlement letters."
+        }
+
+    # 11. Credit Card disputes & Fraud
+    if any(k in q for k in ["credit card", "fraud", "unauthorized", "chargeback", "dhokha", "cut gaye"]):
+        return {
+            "reply": "For unauthorized credit card transactions or double billing: Lodge an emergency dispute under 'Card Disputes Team' immediately. Attach your card statement showing the disputed debit. Under RBI zero-liability rules, if reported within 3 days, customer liability is zero and the bank must issue a provisional credit."
+        }
+
+    # 12. Loans and NOC releases
+    if any(k in q for k in ["loan", "noc", "foreclosure", "cibil", "credit score"]):
+        return {
+            "reply": "For loan foreclosure and document delays: Once full repayment is completed, RBI guidelines mandate that banks must return original property/vehicle deeds and issue an NOC within 30 days. Delays attract compensation of ₹5,000 per 30-day delay cycle. File under 'Loan Servicing Team' with your final clearance receipt."
+        }
+
+    # Default fallback explaining the platform
+    return {
+        "reply": "I am Nova, your GrievanceIQ Autonomous Sentinel. You can ask me anything about filing complaints, checking RBI turnaround times and compensation rules, tracking specific tokens (like GRV-2026-15011), portal login credentials, or using our What-If simulation engine. How can I assist you further?"
+    }
