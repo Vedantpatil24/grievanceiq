@@ -81,6 +81,8 @@ export default function AdminDashboard() {
   const [notesList, setNotesList] = useState([]);
   const [newNoteText, setNewNoteText] = useState('');
   const [notesLoading, setNotesLoading] = useState(false);
+  const [aiTraceData, setAiTraceData] = useState(null);
+  const [aiTraceLoading, setAiTraceLoading] = useState(false);
 
   // Auth check & initial fetch
   useEffect(() => {
@@ -216,9 +218,19 @@ export default function AdminDashboard() {
   };
 
   // Open modal for complaint
+  const fetchAiAuditTrace = (tokenStr) => {
+    setAiTraceLoading(true);
+    setAiTraceData(null);
+    axios.get(`/api/complaints/${tokenStr}/ai-audit-trace`)
+      .then(res => setAiTraceData(res.data))
+      .catch(err => console.error('Error fetching AI audit trace:', err))
+      .finally(() => setAiTraceLoading(false));
+  };
+
   const openComplaintModal = (c) => {
     setSelectedComplaint(c);
-    setModalTab('resolve');
+    setModalTab(c.resolution_mode === 'BOT' ? 'aitrace' : 'resolve');
+    fetchAiAuditTrace(c.token);
     setResolutionDetails('');
     setResolutionType('Full Refund Issued');
     setResRefNumber(c.reference_id || '');
@@ -415,7 +427,7 @@ export default function AdminDashboard() {
             style={{ 
               background: activeTab === 'queue' ? 'white' : 'transparent',
               color: activeTab === 'queue' ? '#1e40af' : '#475569',
-              padding: '6px 12px', fontSize: '0.85rem'
+              padding: '6px 12px', fontSize: '0.85rem', transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)', borderRadius: '6px'
             }}
           >
             <FileText size={15} /> {t('admin_tab_queue')} ({complaints.length})
@@ -426,7 +438,7 @@ export default function AdminDashboard() {
             style={{ 
               background: activeTab === 'analytics' ? 'white' : 'transparent',
               color: activeTab === 'analytics' ? '#1e40af' : '#475569',
-              padding: '6px 12px', fontSize: '0.85rem'
+              padding: '6px 12px', fontSize: '0.85rem', transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)', borderRadius: '6px'
             }}
           >
             <BarChart3 size={15} /> {t('admin_tab_analytics')}
@@ -437,7 +449,7 @@ export default function AdminDashboard() {
             style={{ 
               background: activeTab === 'intelligence' ? 'white' : 'transparent',
               color: activeTab === 'intelligence' ? '#1e40af' : '#475569',
-              padding: '6px 12px', fontSize: '0.85rem'
+              padding: '6px 12px', fontSize: '0.85rem', transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)', borderRadius: '6px'
             }}
           >
             <Activity size={15} /> {t('admin_tab_intelligence')}
@@ -448,7 +460,7 @@ export default function AdminDashboard() {
             style={{ 
               background: activeTab === 'whatif' ? 'white' : 'transparent',
               color: activeTab === 'whatif' ? '#1e40af' : '#475569',
-              padding: '6px 12px', fontSize: '0.85rem'
+              padding: '6px 12px', fontSize: '0.85rem', transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)', borderRadius: '6px'
             }}
           >
             <Sliders size={15} /> {t('admin_tab_whatif')}
@@ -459,7 +471,7 @@ export default function AdminDashboard() {
             style={{ 
               background: activeTab === 'kb' ? 'white' : 'transparent',
               color: activeTab === 'kb' ? '#1e40af' : '#475569',
-              padding: '6px 12px', fontSize: '0.85rem'
+              padding: '6px 12px', fontSize: '0.85rem', transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)', borderRadius: '6px'
             }}
           >
             <BookOpen size={15} /> {t('admin_tab_kb')}
@@ -470,7 +482,7 @@ export default function AdminDashboard() {
             style={{ 
               background: activeTab === 'audit' ? 'white' : 'transparent',
               color: activeTab === 'audit' ? '#1e40af' : '#475569',
-              padding: '6px 12px', fontSize: '0.85rem'
+              padding: '6px 12px', fontSize: '0.85rem', transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)', borderRadius: '6px'
             }}
           >
             <Shield size={15} /> {t('admin_tab_audit')}
@@ -496,7 +508,7 @@ export default function AdminDashboard() {
       {/* KPI METRICS OVERVIEW CARDS */}
       {kpis && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-          <div className="card" style={{ padding: '16px', margin: 0, borderLeft: '4px solid #2563eb' }}>
+          <div className="card card-hoverable" style={{ padding: '16px', margin: 0, borderLeft: '4px solid #2563eb' }}>
             <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{t('admin_kpi_total')}</div>
             <div style={{ fontSize: '1.6rem', fontWeight: '800', color: '#0f172a', marginTop: '4px' }}>
               {kpis.total_complaints}
@@ -506,7 +518,7 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          <div className="card" style={{ padding: '16px', margin: 0, borderLeft: '4px solid #d97706' }}>
+          <div className="card card-hoverable" style={{ padding: '16px', margin: 0, borderLeft: '4px solid #d97706' }}>
             <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{t('admin_kpi_pending')}</div>
             <div style={{ fontSize: '1.6rem', fontWeight: '800', color: '#d97706', marginTop: '4px' }}>
               {kpis.escalated_active}
@@ -516,7 +528,7 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          <div className="card" style={{ padding: '16px', margin: 0, borderLeft: '4px solid #059669' }}>
+          <div className="card card-hoverable" style={{ padding: '16px', margin: 0, borderLeft: '4px solid #059669' }}>
             <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{t('admin_kpi_rate')}</div>
             <div style={{ fontSize: '1.6rem', fontWeight: '800', color: '#059669', marginTop: '4px' }}>
               {kpis.bot_deflection_rate_pct}%
@@ -526,7 +538,7 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          <div className="card" style={{ padding: '16px', margin: 0, borderLeft: '4px solid #9333ea' }}>
+          <div className="card card-hoverable" style={{ padding: '16px', margin: 0, borderLeft: '4px solid #9333ea' }}>
             <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{lang === 'hi' ? 'औसत संतुष्टि रेटिंग' : 'Avg Redressal Rating'}</div>
             <div style={{ fontSize: '1.6rem', fontWeight: '800', color: '#9333ea', marginTop: '4px' }}>
               {kpis.avg_feedback_rating} / 5
@@ -536,7 +548,7 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          <div className="card" style={{ padding: '16px', margin: 0, borderLeft: '4px solid #0284c7' }}>
+          <div className="card card-hoverable" style={{ padding: '16px', margin: 0, borderLeft: '4px solid #0284c7' }}>
             <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{lang === 'hi' ? 'पंजीकृत उपयोगकर्ता आधार' : 'Registered User Base'}</div>
             <div style={{ fontSize: '1.6rem', fontWeight: '800', color: '#0284c7', marginTop: '4px' }}>
               {kpis.registered_users?.total_registered_users || 10}
@@ -546,7 +558,7 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          <div className="card" style={{ padding: '16px', margin: 0, borderLeft: '4px solid #475569' }}>
+          <div className="card card-hoverable" style={{ padding: '16px', margin: 0, borderLeft: '4px solid #475569' }}>
             <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{t('admin_kpi_baseline', 'Kaggle Benchmark Model')}</div>
             <div style={{ fontSize: '1.6rem', fontWeight: '800', color: '#334155', marginTop: '4px' }}>
               {kpis.kaggle_benchmark?.curated_training_records?.toLocaleString() || '15,420'}
@@ -560,7 +572,7 @@ export default function AdminDashboard() {
 
       {/* TAB 1: GRIEVANCES QUEUE */}
       {activeTab === 'queue' && (
-        <div>
+        <div className='tab-pane-fade'>
           {/* FILTERS TOOLBAR */}
           <div className="card" style={{ padding: '16px', marginBottom: '20px' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '12px', alignItems: 'flex-end' }}>
@@ -637,6 +649,21 @@ export default function AdminDashboard() {
                   <option value="High">{tPriority('High')} (24h)</option>
                   <option value="Medium">{tPriority('Medium')} (48h)</option>
                   <option value="Low">{tPriority('Low')} (72h)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="form-label" style={{ fontSize: '0.75rem' }}>Resolution Mode</label>
+                <select 
+                  className="form-select" 
+                  value={resModeFilter} 
+                  onChange={(e) => setResModeFilter(e.target.value)}
+                  style={{ padding: '6px 10px', fontSize: '0.85rem' }}
+                >
+                  <option value="">All Resolution Modes</option>
+                  <option value="BOT">🤖 AI-Resolved (Nova Sentinel)</option>
+                  <option value="HUMAN">👤 Human Officer Resolved</option>
+                  <option value="NONE">⏳ Unresolved / In Queue</option>
                 </select>
               </div>
 
@@ -735,7 +762,15 @@ export default function AdminDashboard() {
                           )}
                         </td>
                         <td>
-                          <div style={{ fontSize: '0.85rem' }}>{c.assigned_officer}</div>
+                          {c.resolution_mode === 'BOT' ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: '#eff6ff', color: '#1e40af', border: '1px solid #bfdbfe', padding: '3px 9px', borderRadius: '12px', fontSize: '0.78rem', fontWeight: '700' }}>
+                              🤖 Nova-AI Sentinel
+                            </span>
+                          ) : (
+                            <div style={{ fontSize: '0.85rem', color: c.assigned_officer === 'Unassigned' ? '#94a3b8' : '#0f172a' }}>
+                              {c.assigned_officer || 'Unassigned'}
+                            </div>
+                          )}
                         </td>
                         <td>
                           <button 
@@ -788,7 +823,7 @@ export default function AdminDashboard() {
 
       {/* TAB 2: HISTORICAL ANALYTICS & TRENDS */}
       {activeTab === 'analytics' && (
-        <div>
+        <div className='tab-pane-fade'>
           {!trends ? (
             <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
               <Activity size={32} color="#2563eb" style={{ animation: 'spin 1s infinite', margin: '0 auto' }} />
@@ -807,7 +842,7 @@ export default function AdminDashboard() {
                     <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                     <YAxis />
                     <Tooltip />
-                    <Bar dataKey="count" fill="#2563eb" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="count" fill="#2563eb" radius={[6, 6, 0, 0]} isAnimationActive={true} animationDuration={1000} animationEasing="ease-out" />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -823,7 +858,7 @@ export default function AdminDashboard() {
                     <XAxis dataKey="bank" tick={{ fontSize: 10 }} />
                     <YAxis />
                     <Tooltip />
-                    <Bar dataKey="count" fill="#059669" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="count" fill="#059669" radius={[6, 6, 0, 0]} isAnimationActive={true} animationDuration={1100} animationEasing="ease-out" />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -876,7 +911,7 @@ export default function AdminDashboard() {
 
       {/* TAB 3: BANK HEALTH SCORE & EARLY WARNING SYSTEM */}
       {activeTab === 'intelligence' && (
-        <div>
+        <div className='tab-pane-fade'>
           {healthLoading ? (
             <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
               <Activity size={32} color="#2563eb" style={{ animation: 'spin 1s infinite' }} />
@@ -994,7 +1029,7 @@ export default function AdminDashboard() {
 
       {/* TAB 4: WHAT-IF STAFFING SIMULATION */}
       {activeTab === 'whatif' && (
-        <div>
+        <div className='tab-pane-fade'>
           {/* Header */}
           <div style={{ marginBottom: '20px' }}>
             <h2 style={{ fontSize: '1.25rem', fontWeight: '700', color: '#1e293b', margin: 0 }}>
@@ -1298,7 +1333,7 @@ export default function AdminDashboard() {
 
       {/* TAB 6: AUDIT TRAIL */}
       {activeTab === 'audit' && (
-        <div className="card">
+        <div className="card tab-pane-fade">
           <h3 style={{ fontSize: '1.2rem', fontWeight: '700', marginBottom: '16px', color: '#1e293b' }}>
             Immutable BFSI Operational Audit Log
           </h3>
@@ -1331,7 +1366,7 @@ export default function AdminDashboard() {
 
             {/* TAB: NOVA-AI SENTINEL PERFORMANCE & CASE AUDIT PANEL */}
       {activeTab === 'nova' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        <div className="tab-pane-fade" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           {/* Header Banner */}
           <div style={{ background: 'linear-gradient(135deg, #0f172a, #1e3a8a)', color: '#ffffff', padding: '24px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
@@ -1549,7 +1584,19 @@ export default function AdminDashboard() {
             </div>
 
             {/* MODAL TABS */}
-            <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid #e2e8f0', marginBottom: '16px', paddingBottom: '8px' }}>
+            <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid #e2e8f0', marginBottom: '16px', paddingBottom: '8px', flexWrap: 'wrap' }}>
+              <button 
+                onClick={() => setModalTab('aitrace')}
+                className="btn"
+                style={{ 
+                  background: modalTab === 'aitrace' ? '#1e40af' : 'transparent',
+                  color: modalTab === 'aitrace' ? 'white' : '#1e40af',
+                  fontSize: '0.85rem', padding: '6px 12px', fontWeight: '700',
+                  border: '1px solid #93c5fd'
+                }}
+              >
+                🤖 AI Reasoning Trace & Decision Chain
+              </button>
               <button 
                 onClick={() => setModalTab('resolve')}
                 className="btn"
@@ -1584,6 +1631,107 @@ export default function AdminDashboard() {
                 Investigation Log ({notesList.length})
               </button>
             </div>
+
+            {/* SUB-PANEL 0: AI REASONING TRACE & EXPLAINABLE AUDIT INSPECTION */}
+            {modalTab === 'aitrace' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '12px 16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '1.2rem' }}>🤖</span>
+                      <div>
+                        <div style={{ fontWeight: '800', color: '#166534', fontSize: '0.92rem' }}>
+                          Nova-AI Autonomous Decision & Reasoning Audit
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: '#15803d' }}>
+                          Transparent 5-stage decision-making pipeline verified under RBI Ombudsman Directives
+                        </div>
+                      </div>
+                    </div>
+                    <span style={{ background: '#dcfce7', color: '#166534', border: '1px solid #86efac', padding: '3px 10px', borderRadius: '12px', fontSize: '0.74rem', fontWeight: '800' }}>
+                      {selectedComplaint.resolution_mode === 'BOT' ? 'AUTONOMOUSLY SETTLED' : 'TIER-1 PROPOSED GUIDANCE'}
+                    </span>
+                  </div>
+                </div>
+
+                {aiTraceLoading ? (
+                  <div style={{ textAlign: 'center', padding: '30px', color: '#64748b' }}>
+                    Loading AI reasoning trace...
+                  </div>
+                ) : aiTraceData ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {/* Step 1 */}
+                    <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                        <strong style={{ fontSize: '0.84rem', color: '#1e293b' }}>{aiTraceData.step_1_narrative_analysis.title}</strong>
+                        <span style={{ fontSize: '0.72rem', background: '#e0f2fe', color: '#0369a1', padding: '2px 8px', borderRadius: '4px', fontWeight: '700' }}>
+                          Validity: {aiTraceData.step_1_narrative_analysis.validity_score}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.8rem', color: '#475569', lineHeight: '1.5' }}>
+                        <div><strong>Detected Category:</strong> {aiTraceData.step_1_narrative_analysis.detected_intent}</div>
+                        <div><strong>Institution:</strong> {aiTraceData.step_1_narrative_analysis.extracted_entities.institution} | <strong>Amount:</strong> ₹{aiTraceData.step_1_narrative_analysis.extracted_entities.disputed_amount?.toLocaleString()}</div>
+                        <div><strong>Reference / UTR:</strong> <span style={{ fontFamily: 'monospace' }}>{aiTraceData.step_1_narrative_analysis.extracted_entities.reference_id}</span></div>
+                      </div>
+                    </div>
+
+                    {/* Step 2 */}
+                    <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                        <strong style={{ fontSize: '0.84rem', color: '#1e293b' }}>{aiTraceData.step_2_evidence_verification.title}</strong>
+                        <span style={{ fontSize: '0.72rem', background: '#dcfce7', color: '#15803d', padding: '2px 8px', borderRadius: '4px', fontWeight: '700' }}>
+                          Status: {aiTraceData.step_2_evidence_verification.evidence_status}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.8rem', color: '#475569', lineHeight: '1.5' }}>
+                        <div><strong>Corroborated Document:</strong> {aiTraceData.step_2_evidence_verification.proof_file}</div>
+                        <div><strong>Cross-Matched Fields:</strong> {aiTraceData.step_2_evidence_verification.fields_matched.join(', ')}</div>
+                      </div>
+                    </div>
+
+                    {/* Step 3 */}
+                    <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                        <strong style={{ fontSize: '0.84rem', color: '#1e293b' }}>{aiTraceData.step_3_training_grounding.title}</strong>
+                        <span style={{ fontSize: '0.72rem', background: '#f3e8ff', color: '#7e22ce', padding: '2px 8px', borderRadius: '4px', fontWeight: '700' }}>
+                          Accuracy: {aiTraceData.step_3_training_grounding.model_accuracy_baseline}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.8rem', color: '#475569', lineHeight: '1.5' }}>
+                        <div><strong>Benchmark Corpus:</strong> {aiTraceData.step_3_training_grounding.benchmark_dataset}</div>
+                        <div><strong>Inference Engine:</strong> {aiTraceData.step_3_training_grounding.nlp_classifier}</div>
+                      </div>
+                    </div>
+
+                    {/* Step 4 */}
+                    <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px', padding: '12px 14px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                        <strong style={{ fontSize: '0.84rem', color: '#92400e' }}>{aiTraceData.step_4_regulatory_framework.title}</strong>
+                        <span style={{ fontSize: '0.72rem', background: '#fef3c7', color: '#92400e', padding: '2px 8px', borderRadius: '4px', fontWeight: '700' }}>
+                          TAT: {aiTraceData.step_4_regulatory_framework.prescribed_tat}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.8rem', color: '#78350f', lineHeight: '1.5' }}>
+                        <div><strong>Mandate Applied:</strong> {aiTraceData.step_4_regulatory_framework.regulatory_mandate}</div>
+                        <div><strong>Statutory Compensation:</strong> {aiTraceData.step_4_regulatory_framework.statutory_compensation}</div>
+                      </div>
+                    </div>
+
+                    {/* Step 5 */}
+                    <div style={{ background: '#ffffff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '14px' }}>
+                      <strong style={{ fontSize: '0.84rem', color: '#1e40af', display: 'block', marginBottom: '8px' }}>
+                        {aiTraceData.step_5_humanized_solution.title} (Dispatched to Complainant)
+                      </strong>
+                      <div style={{ whiteSpace: 'pre-wrap', background: '#f8fafc', padding: '12px', borderRadius: '6px', fontSize: '0.8rem', color: '#1e293b', lineHeight: '1.55', border: '1px solid #e2e8f0' }}>
+                        {aiTraceData.step_5_humanized_solution.humanized_memo}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ color: '#64748b', fontSize: '0.85rem' }}>Unable to retrieve trace data.</div>
+                )}
+              </div>
+            )}
 
             {/* SUB-PANEL 1: SUBMIT WORKER RESOLUTION */}
             {modalTab === 'resolve' && (

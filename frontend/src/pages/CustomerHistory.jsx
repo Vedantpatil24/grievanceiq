@@ -325,16 +325,31 @@ export default function CustomerHistory() {
 
                     {/* Resolution info if resolved */}
                     {c.resolution_notes && (
-                      <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '12px 14px', marginBottom: '12px' }}>
-                        <div style={{ fontWeight: '700', fontSize: '0.82rem', color: '#166534', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <CheckCircle2 size={14} /> Resolution Summary
-                        </div>
-                        <div style={{ fontSize: '0.85rem', color: '#166534', lineHeight: '1.5' }}>{c.resolution_notes}</div>
-                        {c.resolved_at && (
-                          <div style={{ fontSize: '0.75rem', color: '#16a34a', marginTop: '6px', opacity: 0.8 }}>
-                            Resolved on {new Date(c.resolved_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                      <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: '10px', padding: '16px', marginBottom: '14px', boxShadow: '0 2px 8px rgba(34, 197, 94, 0.08)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
+                          <div style={{ fontWeight: '800', fontSize: '0.9rem', color: '#166534', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <CheckCircle2 size={18} color="#16a34a" /> 
+                            <span>Official Redressal Memorandum & Settlement Advice</span>
                           </div>
-                        )}
+                          <span style={{ background: '#dcfce7', color: '#15803d', border: '1px solid #bbf7d0', padding: '3px 10px', borderRadius: '12px', fontSize: '0.74rem', fontWeight: '800' }}>
+                            {c.resolution_mode === 'BOT' ? '🤖 NOVA-AI AUTONOMOUS RESOLUTION' : '👤 OFFICER SETTLED'}
+                          </span>
+                        </div>
+                        
+                        <div style={{ fontSize: '0.88rem', color: '#1e3a1e', lineHeight: '1.6', background: 'white', padding: '14px', borderRadius: '8px', border: '1px solid #dcfce7' }}>
+                          {c.resolution_notes}
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px', fontSize: '0.78rem', color: '#15803d', flexWrap: 'wrap', gap: '6px' }}>
+                          <span>
+                            ⚖️ <strong>Regulatory Framework:</strong> RBI Turn Around Time (TAT) Framework & Auto-reversal Mandate
+                          </span>
+                          {c.resolved_at && (
+                            <span>
+                              Resolved on {new Date(c.resolved_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     )}
 

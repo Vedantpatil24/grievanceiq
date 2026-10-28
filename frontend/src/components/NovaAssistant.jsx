@@ -12,14 +12,23 @@ export default function NovaAssistant() {
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [motionFrame, setMotionFrame] = useState(0);
+  const [isHovered, setIsHovered] = useState(false);
+  const [twirlActive, setTwirlActive] = useState(false);
 
   // Smooth cyclic robotic movements: subtle breathing, joyful head tilt, waving arm, antenna pulse
   useEffect(() => {
     const timer = setInterval(() => {
       setMotionFrame(prev => (prev + 1) % 6);
-    }, 800);
+    }, 700);
     return () => clearInterval(timer);
   }, []);
+
+  const triggerTwirl = (e) => {
+    e.stopPropagation();
+    setTwirlActive(true);
+    setTimeout(() => setTwirlActive(false), 900);
+    setIsOpen(prev => !prev);
+  };
 
   const handleSend = async (textToSend) => {
     const query = (textToSend || input).trim();
@@ -53,25 +62,35 @@ export default function NovaAssistant() {
     }
   };
 
-  // Movement parameters based on reference 3D robot image
-  const floatOffset = [0, -3, -5, -4, -1, 1][motionFrame];
-  const headAngle = [0, -4, 0, 4, 2, -2][motionFrame];
-  const leftArmWave = [-10, -28, -38, -25, -12, 0][motionFrame];
-  const rightArmAngle = [0, 5, 8, 4, 0, -2][motionFrame];
-  const eyeGlowColor = isTyping ? '#fbbf24' : '#38bdf8';
+  // Movement parameters based on frame
+  const floatOffset = [0, -3, -6, -4, -1, 1][motionFrame];
+  const headAngle = isHovered ? -6 : [0, -4, 0, 4, 2, -2][motionFrame];
+  const leftArmWave = isHovered ? -45 : [-10, -28, -42, -25, -12, 0][motionFrame];
+  const rightArmAngle = isHovered ? 20 : [0, 5, 8, 4, 0, -2][motionFrame];
+  const eyeGlowColor = isTyping ? '#fbbf24' : (isHovered ? '#38bdf8' : '#60a5fa');
 
   return (
     <>
       <style>{`
         @keyframes subtleAntennaPulse {
           0%, 100% { transform: scale(1); filter: drop-shadow(0 0 4px #38bdf8); }
-          50% { transform: scale(1.2); filter: drop-shadow(0 0 8px #60a5fa); }
+          50% { transform: scale(1.3); filter: drop-shadow(0 0 10px #60a5fa); }
+        }
+        @keyframes novaTwirlSpin {
+          0% { transform: rotate(0deg) scale(1); }
+          50% { transform: rotate(180deg) scale(1.15) translateY(-8px); }
+          100% { transform: rotate(360deg) scale(1); }
+        }
+        .nova-twirl {
+          animation: novaTwirlSpin 0.85s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
         }
       `}</style>
 
-      {/* ── COMPACT FLOATING NOVA BOT (MATCHING WHITE/BLUE AESTHETIC) ── */}
+      {/* ── COMPACT FLOATING NOVA BOT WITH FLUID GESTURES & TWIRL ── */}
       <div
-        onClick={() => setIsOpen(prev => !prev)}
+        onClick={triggerTwirl}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
         style={{
           position: 'fixed',
           bottom: '22px',
@@ -83,39 +102,44 @@ export default function NovaAssistant() {
           gap: '10px',
           userSelect: 'none'
         }}
-        title="Chat with Nova AI Sentinel"
+        title="Click Nova to chat or twirl!"
       >
         {!isOpen && (
           <div style={{
             background: '#0f172a',
             color: '#ffffff',
-            padding: '6px 12px',
-            borderRadius: '16px',
-            fontSize: '0.78rem',
+            padding: '7px 14px',
+            borderRadius: '20px',
+            fontSize: '0.8rem',
             fontWeight: '600',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.18)',
-            border: '1px solid rgba(255,255,255,0.15)',
+            boxShadow: '0 6px 16px rgba(0,0,0,0.22)',
+            border: '1px solid rgba(255,255,255,0.18)',
             display: 'flex',
             alignItems: 'center',
-            gap: '5px'
+            gap: '6px',
+            transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+            transform: isHovered ? 'scale(1.04)' : 'scale(1)'
           }}>
-            <Sparkles size={13} color="#38bdf8" />
+            <Sparkles size={14} color="#38bdf8" />
             <span>Chat with <strong>Nova</strong></span>
           </div>
         )}
 
-        {/* ── CUTE COMPACT ROBOT BODY ── */}
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          transform: `translateY(${floatOffset}px)`,
-          transition: 'transform 0.4s ease-in-out'
-        }}>
+        {/* ── CUTE ROBOT BODY WITH TWIRL ANIMATION ── */}
+        <div 
+          className={twirlActive ? 'nova-twirl' : ''}
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            transform: twirlActive ? undefined : `translateY(${floatOffset}px) scale(${isHovered ? 1.08 : 1})`,
+            transition: twirlActive ? 'none' : 'transform 0.35s cubic-bezier(0.16, 1, 0.3, 1)'
+          }}
+        >
           {/* Small Antenna */}
           <div style={{
             width: '3px',
-            height: '7px',
+            height: '8px',
             background: '#94a3b8',
             borderRadius: '2px',
             position: 'relative',
@@ -124,13 +148,13 @@ export default function NovaAssistant() {
           }}>
             <div style={{
               position: 'absolute',
-              top: '-5px',
-              width: '6px',
-              height: '6px',
+              top: '-6px',
+              width: '7px',
+              height: '7px',
               borderRadius: '50%',
               background: '#38bdf8',
-              boxShadow: '0 0 6px #38bdf8',
-              animation: 'subtleAntennaPulse 2s infinite'
+              boxShadow: '0 0 8px #38bdf8',
+              animation: 'subtleAntennaPulse 1.8s infinite'
             }}></div>
           </div>
 
@@ -141,7 +165,7 @@ export default function NovaAssistant() {
             alignItems: 'center',
             justifyContent: 'center',
             transform: `rotate(${headAngle}deg)`,
-            transition: 'transform 0.4s ease'
+            transition: 'transform 0.35s ease'
           }}>
             {/* Ear Caps (Left & Right) */}
             <div style={{
@@ -165,21 +189,21 @@ export default function NovaAssistant() {
 
             {/* White Helmet Dome */}
             <div style={{
-              width: '38px',
-              height: '28px',
-              borderRadius: '14px',
+              width: '40px',
+              height: '30px',
+              borderRadius: '15px',
               background: 'linear-gradient(135deg, #ffffff 40%, #e2e8f0 100%)',
               border: '1.5px solid #cbd5e1',
-              boxShadow: '0 3px 8px rgba(0,0,0,0.12)',
+              boxShadow: '0 4px 10px rgba(0,0,0,0.14)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center'
             }}>
               {/* Visor Screen with Glowing Cyan Eyes & Smile */}
               <div style={{
-                width: '28px',
-                height: '18px',
-                borderRadius: '9px',
+                width: '30px',
+                height: '19px',
+                borderRadius: '10px',
                 background: '#0f172a',
                 display: 'flex',
                 flexDirection: 'column',
@@ -195,20 +219,20 @@ export default function NovaAssistant() {
                     height: '5px',
                     borderRadius: '50%',
                     background: eyeGlowColor,
-                    boxShadow: `0 0 5px ${eyeGlowColor}`
+                    boxShadow: `0 0 6px ${eyeGlowColor}`
                   }}></div>
                   <div style={{
                     width: '4px',
                     height: '5px',
                     borderRadius: '50%',
                     background: eyeGlowColor,
-                    boxShadow: `0 0 5px ${eyeGlowColor}`
+                    boxShadow: `0 0 6px ${eyeGlowColor}`
                   }}></div>
                 </div>
 
                 {/* Cute Smiling Mouth */}
                 <div style={{
-                  width: '6px',
+                  width: '7px',
                   height: '3px',
                   borderRadius: '0 0 5px 5px',
                   borderBottom: `1.5px solid ${eyeGlowColor}`
@@ -219,19 +243,19 @@ export default function NovaAssistant() {
 
           {/* Neck Ring */}
           <div style={{
-            width: '14px',
+            width: '15px',
             height: '2.5px',
             background: '#93c5fd',
             borderRadius: '2px',
             margin: '0.5px 0'
           }}></div>
 
-          {/* Cute Round Body with Arms */}
+          {/* Cute Round Body with Fluid Moving Arms */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '1px' }}>
             {/* Left Arm (Waving Motion) */}
             <div style={{
               width: '5px',
-              height: '16px',
+              height: '17px',
               borderRadius: '4px',
               background: '#ffffff',
               border: '1px solid #cbd5e1',
@@ -243,12 +267,12 @@ export default function NovaAssistant() {
 
             {/* Pear-shaped Chubby Torso */}
             <div style={{
-              width: '28px',
-              height: '22px',
-              borderRadius: '12px 12px 14px 14px',
+              width: '30px',
+              height: '24px',
+              borderRadius: '13px 13px 15px 15px',
               background: 'linear-gradient(135deg, #ffffff 40%, #f1f5f9 100%)',
               border: '1.5px solid #cbd5e1',
-              boxShadow: '0 3px 8px rgba(0,0,0,0.1)',
+              boxShadow: '0 4px 10px rgba(0,0,0,0.12)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center'
@@ -260,14 +284,14 @@ export default function NovaAssistant() {
                 borderRadius: '50%',
                 background: '#3b82f6',
                 border: '1px solid #ffffff',
-                boxShadow: '0 0 4px #3b82f6'
+                boxShadow: '0 0 5px #3b82f6'
               }}></div>
             </div>
 
             {/* Right Arm */}
             <div style={{
               width: '5px',
-              height: '15px',
+              height: '16px',
               borderRadius: '4px',
               background: '#ffffff',
               border: '1px solid #cbd5e1',
@@ -279,7 +303,7 @@ export default function NovaAssistant() {
           </div>
 
           {/* Little White Feet */}
-          <div style={{ display: 'flex', gap: '6px', marginTop: '1px' }}>
+          <div style={{ display: 'flex', gap: '7px', marginTop: '1px' }}>
             <div style={{
               width: '7px',
               height: '5px',
@@ -298,65 +322,55 @@ export default function NovaAssistant() {
         </div>
       </div>
 
-      {/* ── CHAT MODAL WINDOW ── */}
+      {/* ── CHAT MODAL ── */}
       {isOpen && (
         <div style={{
           position: 'fixed',
           bottom: '88px',
           right: '24px',
           width: '380px',
-          height: '510px',
+          maxHeight: '520px',
           background: '#ffffff',
           borderRadius: '16px',
-          boxShadow: '0 16px 40px rgba(0,0,0,0.25)',
-          zIndex: 10000,
+          boxShadow: '0 12px 32px rgba(0,0,0,0.22)',
+          border: '1px solid #e2e8f0',
           display: 'flex',
           flexDirection: 'column',
-          overflow: 'hidden',
-          border: '1px solid #e2e8f0',
-          animation: 'fadeInUp 0.3s ease'
-        }}>
+          zIndex: 9999,
+          overflow: 'hidden'
+        }} className="tab-pane-fade">
           {/* Header */}
           <div style={{
-            background: 'linear-gradient(135deg, #0f172a, #1e3a8a)',
-            padding: '14px 16px',
+            background: 'linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%)',
             color: '#ffffff',
+            padding: '12px 16px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between'
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <div style={{
-                background: 'rgba(255,255,255,0.15)',
-                padding: '7px',
+                width: '10px',
+                height: '10px',
                 borderRadius: '50%',
-                display: 'flex'
-              }}>
-                <Bot size={20} color="#38bdf8" />
-              </div>
+                background: '#22c55e',
+                boxShadow: '0 0 6px #22c55e'
+              }}></div>
               <div>
-                <div style={{ fontWeight: '700', fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  Nova-AI Sentinel
-                  <span style={{
-                    fontSize: '0.62rem',
-                    background: '#10b981',
-                    color: '#ffffff',
-                    padding: '2px 6px',
-                    borderRadius: '10px',
-                    fontWeight: '600'
-                  }}>ONLINE</span>
-                </div>
-                <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>RBI Grievance Compliance Assistant</div>
+                <div style={{ fontSize: '0.9rem', fontWeight: '700' }}>Nova AI Sentinel</div>
+                <div style={{ fontSize: '0.72rem', color: '#93c5fd' }}>RBI Redressal Autonomous Bot</div>
               </div>
             </div>
-
             <button
               onClick={() => setIsOpen(false)}
               style={{
                 background: 'transparent',
                 border: 'none',
-                color: '#94a3b8',
+                color: '#ffffff',
                 cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
                 padding: '4px'
               }}
             >
@@ -364,73 +378,16 @@ export default function NovaAssistant() {
             </button>
           </div>
 
-          {/* Quick FAQ Chips */}
+          {/* Messages Container */}
           <div style={{
-            background: '#f8fafc',
-            padding: '8px 12px',
-            borderBottom: '1px solid #e2e8f0',
-            display: 'flex',
-            gap: '6px',
-            overflowX: 'auto',
-            whiteSpace: 'nowrap'
-          }}>
-            <button
-              onClick={() => handleSend("How many total complaints are in the database?")}
-              style={{
-                background: '#ffffff',
-                border: '1px solid #cbd5e1',
-                padding: '4px 10px',
-                borderRadius: '14px',
-                fontSize: '0.72rem',
-                color: '#334155',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px'
-              }}
-            >
-              <Sparkles size={12} color="#2563eb" /> System Stats
-            </button>
-
-            <button
-              onClick={() => handleSend("Paise cut ho gaye atm se cash nahi nikla kya karu?")}
-              style={{
-                background: '#ffffff',
-                border: '1px solid #cbd5e1',
-                padding: '4px 10px',
-                borderRadius: '14px',
-                fontSize: '0.72rem',
-                color: '#334155',
-                cursor: 'pointer'
-              }}
-            >
-              ATM Cash Issue
-            </button>
-
-            <button
-              onClick={() => handleSend("What is the RBI turnaround time and compensation for failed UPI?")}
-              style={{
-                background: '#ffffff',
-                border: '1px solid #cbd5e1',
-                padding: '4px 10px',
-                borderRadius: '14px',
-                fontSize: '0.72rem',
-                color: '#334155',
-                cursor: 'pointer'
-              }}
-            >
-              RBI TAT & Rules
-            </button>
-          </div>
-
-          {/* Message History */}
-          <div style={{
-            flex: 1,
             padding: '14px',
+            flex: 1,
             overflowY: 'auto',
             display: 'flex',
             flexDirection: 'column',
-            gap: '10px'
+            gap: '10px',
+            background: '#f8fafc',
+            maxHeight: '340px'
           }}>
             {messages.map((m, idx) => (
               <div
@@ -441,11 +398,12 @@ export default function NovaAssistant() {
                 }}
               >
                 <div style={{
-                  maxWidth: '84%',
+                  maxWidth: '82%',
                   padding: '9px 13px',
                   borderRadius: m.sender === 'user' ? '14px 14px 2px 14px' : '14px 14px 14px 2px',
-                  background: m.sender === 'user' ? '#2563eb' : '#f1f5f9',
+                  background: m.sender === 'user' ? '#1e40af' : '#ffffff',
                   color: m.sender === 'user' ? '#ffffff' : '#0f172a',
+                  border: m.sender === 'user' ? 'none' : '1px solid #e2e8f0',
                   fontSize: '0.84rem',
                   lineHeight: '1.45',
                   boxShadow: '0 1px 2px rgba(0,0,0,0.05)',

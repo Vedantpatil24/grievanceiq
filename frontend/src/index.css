@@ -354,6 +354,40 @@ tr:hover {
   to   { opacity: 1; transform: translateY(0); }
 }
 
+
+/* Smooth Tab & Page Entrance Transitions */
+.tab-pane-fade {
+  animation: tabFadeIn 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes tabFadeIn {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.995);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Card Hover Elevation */
+.card-hoverable {
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.card-hoverable:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px -4px rgba(15, 23, 42, 0.12), 0 4px 8px -2px rgba(15, 23, 42, 0.06);
+}
+
+/* Micro-interaction Button Pop */
+.btn-interactive {
+  transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+}
+.btn-interactive:active {
+  transform: scale(0.97);
+}
+
 /* ── Responsive helpers ──────────────────────────────────── */
 @media (max-width: 768px) {
   .navbar { flex-direction: column; gap: 12px; padding: 12px 16px; }

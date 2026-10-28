@@ -24,3 +24,15 @@ Python_codes/uploads/
 uploads/
 Dataset/*_backup.db
 Dataset/grievanceiq_backup.db
+patch_*.py
+patch_*.js
+inspect_*.py
+check_*.py
+list_*.py
+generate_*.py
+apply_*.py
+dedup_*.py
+verify_*.py
+test_*.js
+commit_msg.txt
+generated_images/

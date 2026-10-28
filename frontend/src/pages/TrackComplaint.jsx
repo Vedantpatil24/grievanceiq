@@ -239,6 +239,34 @@ export default function TrackComplaint() {
                 ))}
               </div>
 
+              {/* AI AUTONOMOUS RESOLUTION ADVICE MEMORANDUM */}
+              {complaint.status === 'resolved' && complaint.resolution_notes && (
+                <div style={{ marginTop: '20px', padding: '18px', background: '#f0fdf4', borderRadius: '10px', border: '2px solid #86efac', boxShadow: '0 4px 12px rgba(34, 197, 94, 0.08)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <CheckCircle2 size={20} color="#16a34a" />
+                      <h4 style={{ color: '#166534', fontSize: '1.05rem', fontWeight: '800', margin: 0 }}>
+                        Official Statutory Settlement Memorandum
+                      </h4>
+                    </div>
+                    <span style={{ background: '#dcfce7', color: '#15803d', border: '1px solid #86efac', padding: '3px 10px', borderRadius: '12px', fontSize: '0.74rem', fontWeight: '800' }}>
+                      {complaint.resolution_mode === 'BOT' ? '🤖 NOVA-AI AUTONOMOUS RESOLUTION' : '👤 OFFICER SETTLED'}
+                    </span>
+                  </div>
+
+                  <p style={{ fontSize: '0.9rem', color: '#1e3a1e', lineHeight: '1.6', background: 'white', padding: '14px', borderRadius: '8px', border: '1px solid #bbf7d0', marginBottom: '12px', whiteSpace: 'pre-line' }}>
+                    {complaint.resolution_notes}
+                  </p>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem', color: '#166534', flexWrap: 'wrap', gap: '6px' }}>
+                    <span>⚖️ <strong>Regulatory Framework:</strong> RBI Turn Around Time (TAT) Framework & Auto-reversal Mandate</span>
+                    {complaint.resolved_at && (
+                      <span>Resolved on {new Date(complaint.resolved_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* PROPOSED WORKER RESOLUTION REVIEW CARD */}
               {complaint.latest_resolution && (
                 <div style={{ marginTop: '20px', padding: '18px', background: '#f0fdf4', borderRadius: '8px', border: '2px solid #86efac' }}>
