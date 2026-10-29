@@ -1125,6 +1125,10 @@ def get_notifications(
         "title": n.title,
         "body": n.body,
         "is_read": n.is_read,
+        "complaint_id": n.complaint_id,
+        "token": n.complaint.token if n.complaint else None,
+        "service_type": n.complaint.service_type if n.complaint else None,
+        "status": n.complaint.status if n.complaint else None,
         "created_at": n.created_at.isoformat()
     } for n in notifs]
 
@@ -1708,8 +1712,88 @@ def verify_evidence(
         comment=f"Evidence proof marked as {payload.status}. {payload.reason or ''}"
     ))
 
+    # Notify customer about evidence verification status
+    if payload.status == "REJECTED":
+        create_notification(
+            db=db,
+            complaint_id=complaint.complaint_id,
+            recipient_type="customer",
+            notification_type="EVIDENCE_REJECTED",
+            title=f"⚠️ Evidence Rejected for #{complaint.token}",
+            body=f"Document rejected: {payload.reason or 'Insufficient details'}. Please upload a clear valid proof."
+        )
+    else:
+        create_notification(
+            db=db,
+            complaint_id=complaint.complaint_id,
+            recipient_type="customer",
+            notification_type="EVIDENCE_VERIFIED",
+            title=f"✅ Evidence Verified for #{complaint.token}",
+            body="Your uploaded transaction proof has been verified by the bank officer."
+        )
+
     db.commit()
     return {"message": f"Evidence marked as {payload.status}.", "evidence_status": payload.status}
+
+@app.post("/api/complaints/{token}/resubmit-evidence")
+async def resubmit_evidence(
+    token: str,
+    proof_file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
+    """
+    Allows a customer to re-upload proof/evidence if previous evidence was rejected or pending.
+    Validates document with strict verifier, saves the new file, updates complaint status.
+    """
+    complaint = db.query(Complaint).filter(Complaint.token == token).first()
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
+    if not proof_file or not proof_file.filename:
+        raise HTTPException(status_code=400, detail="No file provided")
+
+    # Save new file
+    filename = f"reupload_{int(datetime.utcnow().timestamp())}_{proof_file.filename}"
+    saved_file_path = os.path.join(UPLOAD_DIR, filename)
+    with open(saved_file_path, "wb") as buffer:
+        shutil.copyfileobj(proof_file.file, buffer)
+
+    # Re-verify with evidence_verifier
+    result = verify_evidence_doc(
+        file_path=saved_file_path,
+        service_type=complaint.service_type,
+        submitted_bank=complaint.company.company_name if complaint.company else None,
+        submitted_date=str(complaint.transaction_date) if complaint.transaction_date else None,
+        submitted_amount=complaint.amount,
+        submitted_ref_id=complaint.reference_id,
+        submitted_branch=complaint.branch
+    )
+
+    new_verdict = result.get("verdict", "PENDING")
+    display_status = "VERIFIED" if new_verdict == "VERIFIED" else "PENDING"
+    
+    complaint.proof_file_path = saved_file_path
+    complaint.evidence_status = display_status
+    complaint.evidence_rejection_reason = None
+
+    db.add(StatusHistory(
+        complaint_id=complaint.complaint_id,
+        old_status=complaint.status,
+        new_status=complaint.status,
+        changed_by="Customer (Re-upload)",
+        changed_at=datetime.utcnow(),
+        comment=f"Customer re-uploaded new proof document ({proof_file.filename}). Status set to {display_status}."
+    ))
+
+    db.commit()
+
+    return {
+        "message": "New proof uploaded successfully and queued for review.",
+        "evidence_status": display_status,
+        "proof_file": filename,
+        "verdict": new_verdict,
+        "warnings": result.get("warnings", [])
+    }
 
 @app.post("/api/worker/complaints/{token}/ai-evidence-analysis")
 async def ai_evidence_analysis(

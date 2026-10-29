@@ -4,7 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useLanguage } from '../context/LanguageContext';
 import { 
   Search, Clock, ShieldCheck, UserCheck, MessageSquare, 
-  Send, RefreshCw, Star, AlertCircle, FileText, CheckCircle2 
+  Send, RefreshCw, Star, AlertCircle, FileText, CheckCircle2, Upload, AlertTriangle 
 } from 'lucide-react';
 
 export default function TrackComplaint() {
@@ -28,6 +28,34 @@ export default function TrackComplaint() {
   // Reopen state
   const [reopenReason, setReopenReason] = useState('');
   const [showReopenModal, setShowReopenModal] = useState(false);
+
+  // Evidence Re-upload state
+  const [newProofFile, setNewProofFile] = useState(null);
+  const [uploadingProof, setUploadingProof] = useState(false);
+  const [proofSuccessMsg, setProofSuccessMsg] = useState('');
+  const [proofErrorMsg, setProofErrorMsg] = useState('');
+
+  const handleResubmitEvidence = async (e) => {
+    e.preventDefault();
+    if (!newProofFile || !complaint?.token) return;
+    setUploadingProof(true);
+    setProofSuccessMsg('');
+    setProofErrorMsg('');
+    try {
+      const formData = new FormData();
+      formData.append('proof_file', newProofFile);
+      const res = await axios.post(`/api/complaints/${complaint.token}/resubmit-evidence`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      setProofSuccessMsg(res.data.message || 'Evidence uploaded successfully!');
+      setNewProofFile(null);
+      fetchComplaint(complaint.token);
+    } catch (err) {
+      setProofErrorMsg(err.response?.data?.detail || 'Failed to upload proof. Please try again.');
+    } finally {
+      setUploadingProof(false);
+    }
+  };
 
   const fetchComplaint = async (tkn) => {
     if (!tkn) return;
@@ -342,6 +370,59 @@ export default function TrackComplaint() {
                       </div>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* EVIDENCE RE-UPLOAD CARD IF REJECTED OR PENDING */}
+              {complaint.evidence_status === 'REJECTED' && (
+                <div style={{ marginTop: '20px', padding: '18px', background: '#fff1f2', borderRadius: '8px', border: '2px solid #fecdd3' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                    <AlertTriangle size={20} color="#e11d48" />
+                    <h4 style={{ color: '#9f1239', fontSize: '1.05rem', fontWeight: '800', margin: 0 }}>
+                      Evidence Proof Rejected — Action Required
+                    </h4>
+                  </div>
+                  <p style={{ fontSize: '0.88rem', color: '#881337', marginBottom: '12px', background: '#ffe4e6', padding: '10px 12px', borderRadius: '6px', borderLeft: '4px solid #e11d48' }}>
+                    <strong>Reason: </strong> {complaint.evidence_rejection_reason || 'The attached proof was insufficient or did not match the transaction details. Please upload a clear receipt, bank statement, or payment reference slip.'}
+                  </p>
+
+                  <form onSubmit={handleResubmitEvidence} style={{ marginTop: '12px' }}>
+                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: '700', color: '#9f1239', marginBottom: '6px' }}>
+                      Upload New Valid Proof Document (PDF, PNG, JPG ≤ 10MB):
+                    </label>
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <input 
+                        type="file" 
+                        accept=".pdf,.png,.jpg,.jpeg"
+                        onChange={(e) => {
+                          setNewProofFile(e.target.files[0]);
+                          setProofSuccessMsg('');
+                          setProofErrorMsg('');
+                        }}
+                        style={{ fontSize: '0.85rem', padding: '6px', background: 'white', borderRadius: '6px', border: '1px solid #fda4af', flex: 1, minWidth: '220px' }}
+                        required
+                      />
+                      <button 
+                        type="submit" 
+                        className="btn btn-primary"
+                        disabled={uploadingProof || !newProofFile}
+                        style={{ padding: '8px 16px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px', background: '#e11d48', borderColor: '#e11d48' }}
+                      >
+                        <Upload size={16} /> {uploadingProof ? 'Uploading & Verifying...' : 'Submit New Proof'}
+                      </button>
+                    </div>
+
+                    {proofSuccessMsg && (
+                      <div style={{ marginTop: '10px', fontSize: '0.85rem', color: '#166534', background: '#f0fdf4', padding: '8px 12px', borderRadius: '6px', border: '1px solid #bbf7d0', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <CheckCircle2 size={16} /> {proofSuccessMsg}
+                      </div>
+                    )}
+                    {proofErrorMsg && (
+                      <div style={{ marginTop: '10px', fontSize: '0.85rem', color: '#991b1b', background: '#fef2f2', padding: '8px 12px', borderRadius: '6px', border: '1px solid #fecaca', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <AlertCircle size={16} /> {proofErrorMsg}
+                      </div>
+                    )}
+                  </form>
                 </div>
               )}
 
