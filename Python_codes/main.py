@@ -39,7 +39,7 @@ from audit_service import log_audit_event, create_notification
 from semantic_engine import predict_sub_category, find_similar_complaints
 from bank_intelligence import (
     calculate_bank_health_score, detect_early_warnings,
-    generate_management_recommendations, run_what_if_simulation
+    generate_management_recommendations, run_what_if_simulation, get_bank_leaderboard
 )
 
 # JWT Security Configurations
@@ -2060,6 +2060,17 @@ def ai_resolve_batch(db: Session = Depends(get_db), current_user: User = Depends
         "total_ai_resolved": new_bot_count
     }
 
+
+@app.get("/api/intelligence/bank-leaderboard")
+def get_bank_performance_leaderboard(
+    month: Optional[str] = Query(None, description="Filter ranking by YYYY-MM"),
+    db: Session = Depends(get_db)
+):
+    """
+    Returns dynamic monthly Bank Performance Leaderboard ranking institutions
+    on grievance resolution rate, SLA compliance, TAT, and health score index.
+    """
+    return get_bank_leaderboard(db, selected_month=month)
 
 @app.get("/api/intelligence/bank-health")
 def get_bank_health(db: Session = Depends(get_db)):

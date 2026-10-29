@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Users, CheckCircle, Clock, AlertTriangle, Filter, Search, 
   Sparkles, FileText, BarChart3, BookOpen, Shield, RefreshCw,
-  Check, X, Upload, MessageSquare, Activity, Cpu, Sliders, Globe
+  Check, X, Upload, MessageSquare, Activity, Cpu, Sliders, Globe, Award, TrendingUp, Calendar
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, 
@@ -30,6 +30,11 @@ export default function AdminDashboard() {
   const [companies, setCompanies] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(false);
+  // Bank Leaderboard States
+  const [leaderboardData, setLeaderboardData] = useState(null);
+  const [leaderboardLoading, setLeaderboardLoading] = useState(false);
+  const [selectedLeaderboardMonth, setSelectedLeaderboardMonth] = useState('');
+
   // Bank Health & Intelligence States
   const [bankHealth, setBankHealth] = useState(null);
   const [healthLoading, setHealthLoading] = useState(false);
@@ -134,6 +139,28 @@ export default function AdminDashboard() {
   useEffect(() => {
     if (token) fetchComplaints();
   }, [statusFilter, deptFilter, companyFilter, priorityFilter, resModeFilter]);
+  const fetchLeaderboard = (monthOverride = null) => {
+    setLeaderboardLoading(true);
+    const currentToken = localStorage.getItem('grievanceiq_token') || token;
+    const headers = currentToken ? { Authorization: `Bearer ${currentToken}` } : {};
+    const targetMonth = monthOverride !== null ? monthOverride : selectedLeaderboardMonth;
+    const params = targetMonth ? { month: targetMonth } : {};
+    
+    axios.get('/api/intelligence/bank-leaderboard', { headers, params })
+      .then(res => {
+        if (res.data) {
+          setLeaderboardData(res.data);
+          if (!selectedLeaderboardMonth && res.data.selected_month) {
+            setSelectedLeaderboardMonth(res.data.selected_month);
+          }
+        }
+      })
+      .catch(err => {
+        console.error('Error fetching leaderboard:', err);
+      })
+      .finally(() => setLeaderboardLoading(false));
+  };
+
   const fetchBankHealth = () => {
     setHealthLoading(true);
     setHealthError(null);
@@ -455,6 +482,21 @@ export default function AdminDashboard() {
             <Activity size={15} /> {t('admin_tab_intelligence')}
           </button>
           <button 
+            onClick={() => { setActiveTab('leaderboard'); fetchLeaderboard(); }}
+            className="btn"
+            style={{ 
+              background: activeTab === 'leaderboard' ? '#1e40af' : 'transparent',
+              color: activeTab === 'leaderboard' ? '#ffffff' : '#475569',
+              padding: '6px 14px', fontSize: '0.85rem', fontWeight: '700',
+              display: 'inline-flex', alignItems: 'center', gap: '6px',
+              borderRadius: '6px',
+              boxShadow: activeTab === 'leaderboard' ? '0 2px 4px rgba(30, 64, 175, 0.3)' : 'none'
+            }}
+          >
+            <Award size={16} color={activeTab === 'leaderboard' ? '#fbbf24' : '#2563eb'} /> 
+            <span>🏆 {t('admin_tab_leaderboard', 'Bank Leaderboard')}</span>
+          </button>
+          <button 
             onClick={() => handleTabChange('whatif')}
             className="btn"
             style={{ 
@@ -464,17 +506,6 @@ export default function AdminDashboard() {
             }}
           >
             <Sliders size={15} /> {t('admin_tab_whatif')}
-          </button>
-          <button 
-            onClick={() => handleTabChange('kb')}
-            className="btn"
-            style={{ 
-              background: activeTab === 'kb' ? 'white' : 'transparent',
-              color: activeTab === 'kb' ? '#1e40af' : '#475569',
-              padding: '6px 12px', fontSize: '0.85rem', transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)', borderRadius: '6px'
-            }}
-          >
-            <BookOpen size={15} /> {t('admin_tab_kb')}
           </button>
           <button 
             onClick={() => handleTabChange('audit')}
@@ -1289,47 +1320,6 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* TAB 5: KNOWLEDGE BASE MANAGER */}
-      {activeTab === 'kb' && (
-        <div className="card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h3 style={{ fontSize: '1.2rem', fontWeight: '700', color: '#1e293b' }}>
-              Configurable Banking Guidance Articles ({kbArticles.length})
-            </h3>
-          </div>
-
-          <div className="table-container">
-            <table>
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Title</th>
-                  <th>Category</th>
-                  <th>Keywords</th>
-                  <th>Self-Resolve?</th>
-                  <th>Regulatory Reference</th>
-                </tr>
-              </thead>
-              <tbody>
-                {kbArticles.map(a => (
-                  <tr key={a.article_id}>
-                    <td>#{a.article_id}</td>
-                    <td><strong>{a.title}</strong></td>
-                    <td>{a.category}</td>
-                    <td style={{ fontSize: '0.8rem', color: '#64748b' }}>{a.keywords}</td>
-                    <td>
-                      <span className={`badge ${a.can_self_resolve ? 'badge-green' : 'badge-yellow'}`}>
-                        {a.can_self_resolve ? 'Self-Service' : 'Escalate Req'}
-                      </span>
-                    </td>
-                    <td style={{ fontSize: '0.8rem' }}>{a.regulatory_reference || 'General'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
 
       {/* TAB 6: AUDIT TRAIL */}
       {activeTab === 'audit' && (
@@ -1556,6 +1546,337 @@ export default function AdminDashboard() {
               </table>
             </div>
           </div>
+        </div>
+      )}
+
+
+      {/* TAB 8: BANK PERFORMANCE LEADERBOARD */}
+      {activeTab === 'leaderboard' && (
+        <div className="tab-pane-fade">
+          {/* TOP CONTROLS & HEADER */}
+          <div className="card" style={{ padding: '20px', marginBottom: '24px', background: 'linear-gradient(135deg, #f8fafc 0%, #eff6ff 100%)', border: '1px solid #bfdbfe' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ fontSize: '1.8rem' }}>🏆</span>
+                  <h2 style={{ fontSize: '1.25rem', fontWeight: '800', color: '#1e3a8a', margin: 0 }}>
+                    {t('leaderboard_title', 'Institutional Bank Performance Leaderboard')}
+                  </h2>
+                  <span style={{
+                    display: 'inline-flex', alignItems: 'center', gap: '4px',
+                    background: '#dbeafe', color: '#1d4ed8', fontSize: '0.75rem',
+                    fontWeight: '700', padding: '3px 10px', borderRadius: '12px',
+                    border: '1px solid #93c5fd'
+                  }}>
+                    <TrendingUp size={13} /> {t('leaderboard_monthly_badge', 'Auto-Audited Monthly')}
+                  </span>
+                </div>
+                <p style={{ color: '#475569', fontSize: '0.85rem', margin: '6px 0 0 0', maxWidth: '850px' }}>
+                  {t('leaderboard_subtitle', 'Monthly evaluation and comparative ranking of BFSI institutions under RBI Redressal Framework, SLA compliance, resolution turnaround (TAT), and composite health scores.')}
+                </p>
+              </div>
+
+              {/* MONTH SELECTOR & REFRESH */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'white', padding: '8px 14px', borderRadius: '8px', border: '1px solid #cbd5e1', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                <Calendar size={16} color="#2563eb" />
+                <label style={{ fontSize: '0.8rem', fontWeight: '700', color: '#334155' }}>
+                  {t('leaderboard_month_select', 'Evaluation Period')}:
+                </label>
+                <select 
+                  className="form-select"
+                  value={selectedLeaderboardMonth || (leaderboardData?.selected_month || '')}
+                  onChange={(e) => {
+                    const newMonth = e.target.value;
+                    setSelectedLeaderboardMonth(newMonth);
+                    fetchLeaderboard(newMonth);
+                  }}
+                  style={{ fontSize: '0.82rem', padding: '5px 10px', minWidth: '140px', fontWeight: '600', color: '#0f172a' }}
+                >
+                  {(leaderboardData?.available_months || ['2026-10', '2026-09', '2026-08', '2026-07']).map(m => (
+                    <option key={m} value={m}>
+                      {new Date(m + '-01').toLocaleDateString(lang === 'hi' ? 'hi-IN' : (lang === 'mr' ? 'mr-IN' : 'en-US'), { month: 'long', year: 'numeric' })}
+                    </option>
+                  ))}
+                </select>
+                <button 
+                  onClick={() => fetchLeaderboard(selectedLeaderboardMonth)}
+                  className="btn btn-secondary"
+                  style={{ padding: '5px 10px', fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                  title="Refresh Leaderboard"
+                >
+                  <RefreshCw size={13} className={leaderboardLoading ? 'spin' : ''} />
+                  <span>{t('refresh', 'Refresh')}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {leaderboardLoading && !leaderboardData ? (
+            <div className="card" style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
+              <div className="spinner" style={{ margin: '0 auto 12px auto' }}></div>
+              <div>Computing statutory monthly redressal rankings & TAT benchmarks...</div>
+            </div>
+          ) : (
+            <>
+              {/* TOP 3 PODIUM CARDS */}
+              {leaderboardData?.leaderboard && leaderboardData.leaderboard.length >= 3 && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', marginBottom: '24px' }}>
+                  {/* RANK 1 GOLD */}
+                  <div className="card card-hoverable" style={{
+                    padding: '20px', margin: 0,
+                    background: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)',
+                    border: '2px solid #f59e0b',
+                    borderRadius: '12px',
+                    position: 'relative',
+                    overflow: 'hidden'
+                  }}>
+                    <div style={{ position: 'absolute', top: '12px', right: '14px', fontSize: '2rem' }}>🥇</div>
+                    <div style={{ fontSize: '0.75rem', fontWeight: '800', color: '#b45309', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      {t('leaderboard_top_performer', 'Monthly Ranking Leader')} • Rank #1
+                    </div>
+                    <div style={{ fontSize: '1.3rem', fontWeight: '800', color: '#78350f', marginTop: '6px' }}>
+                      {leaderboardData.leaderboard[0].bank_name}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginTop: '10px' }}>
+                      <span style={{ fontSize: '2.2rem', fontWeight: '900', color: '#b45309' }}>
+                        {leaderboardData.leaderboard[0].composite_score}
+                      </span>
+                      <span style={{ fontSize: '0.85rem', color: '#92400e', fontWeight: '700' }}>/ 100 Health Score</span>
+                      <span style={{ 
+                        marginLeft: 'auto', background: '#fef3c7', color: '#92400e', 
+                        padding: '3px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: '800',
+                        border: '1px solid #fcd34d'
+                      }}>
+                        {leaderboardData.leaderboard[0].grade}
+                      </span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '14px', paddingTop: '12px', borderTop: '1px solid rgba(245, 158, 11, 0.25)', fontSize: '0.8rem' }}>
+                      <div>
+                        <span style={{ color: '#92400e' }}>Resolution:</span> <strong>{leaderboardData.leaderboard[0].resolution_rate}%</strong>
+                      </div>
+                      <div>
+                        <span style={{ color: '#92400e' }}>SLA Discipline:</span> <strong>{leaderboardData.leaderboard[0].sla_compliance_rate}%</strong>
+                      </div>
+                      <div>
+                        <span style={{ color: '#92400e' }}>Avg TAT:</span> <strong>{leaderboardData.leaderboard[0].avg_tat_days} days</strong>
+                      </div>
+                      <div>
+                        <span style={{ color: '#92400e' }}>Volume:</span> <strong>{leaderboardData.leaderboard[0].total_complaints.toLocaleString()}</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* RANK 2 SILVER */}
+                  <div className="card card-hoverable" style={{
+                    padding: '20px', margin: 0,
+                    background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
+                    border: '2px solid #94a3b8',
+                    borderRadius: '12px',
+                    position: 'relative'
+                  }}>
+                    <div style={{ position: 'absolute', top: '12px', right: '14px', fontSize: '2rem' }}>🥈</div>
+                    <div style={{ fontSize: '0.75rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      Runner Up • Rank #2
+                    </div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#1e293b', marginTop: '6px' }}>
+                      {leaderboardData.leaderboard[1].bank_name}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginTop: '10px' }}>
+                      <span style={{ fontSize: '2rem', fontWeight: '900', color: '#334155' }}>
+                        {leaderboardData.leaderboard[1].composite_score}
+                      </span>
+                      <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: '700' }}>/ 100</span>
+                      <span style={{ 
+                        marginLeft: 'auto', background: '#f1f5f9', color: '#334155', 
+                        padding: '3px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: '800',
+                        border: '1px solid #cbd5e1'
+                      }}>
+                        {leaderboardData.leaderboard[1].grade}
+                      </span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '14px', paddingTop: '12px', borderTop: '1px solid #cbd5e1', fontSize: '0.8rem' }}>
+                      <div>
+                        <span style={{ color: '#64748b' }}>Resolution:</span> <strong>{leaderboardData.leaderboard[1].resolution_rate}%</strong>
+                      </div>
+                      <div>
+                        <span style={{ color: '#64748b' }}>SLA Discipline:</span> <strong>{leaderboardData.leaderboard[1].sla_compliance_rate}%</strong>
+                      </div>
+                      <div>
+                        <span style={{ color: '#64748b' }}>Avg TAT:</span> <strong>{leaderboardData.leaderboard[1].avg_tat_days} days</strong>
+                      </div>
+                      <div>
+                        <span style={{ color: '#64748b' }}>Volume:</span> <strong>{leaderboardData.leaderboard[1].total_complaints.toLocaleString()}</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* RANK 3 BRONZE */}
+                  <div className="card card-hoverable" style={{
+                    padding: '20px', margin: 0,
+                    background: 'linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%)',
+                    border: '2px solid #fdba74',
+                    borderRadius: '12px',
+                    position: 'relative'
+                  }}>
+                    <div style={{ position: 'absolute', top: '12px', right: '14px', fontSize: '2rem' }}>🥉</div>
+                    <div style={{ fontSize: '0.75rem', fontWeight: '800', color: '#9a3412', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      Third Podium • Rank #3
+                    </div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#7c2d12', marginTop: '6px' }}>
+                      {leaderboardData.leaderboard[2].bank_name}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginTop: '10px' }}>
+                      <span style={{ fontSize: '2rem', fontWeight: '900', color: '#c2410c' }}>
+                        {leaderboardData.leaderboard[2].composite_score}
+                      </span>
+                      <span style={{ fontSize: '0.85rem', color: '#9a3412', fontWeight: '700' }}>/ 100</span>
+                      <span style={{ 
+                        marginLeft: 'auto', background: '#ffedd5', color: '#9a3412', 
+                        padding: '3px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: '800',
+                        border: '1px solid #fed7aa'
+                      }}>
+                        {leaderboardData.leaderboard[2].grade}
+                      </span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '14px', paddingTop: '12px', borderTop: '1px solid #fed7aa', fontSize: '0.8rem' }}>
+                      <div>
+                        <span style={{ color: '#9a3412' }}>Resolution:</span> <strong>{leaderboardData.leaderboard[2].resolution_rate}%</strong>
+                      </div>
+                      <div>
+                        <span style={{ color: '#9a3412' }}>SLA Discipline:</span> <strong>{leaderboardData.leaderboard[2].sla_compliance_rate}%</strong>
+                      </div>
+                      <div>
+                        <span style={{ color: '#9a3412' }}>Avg TAT:</span> <strong>{leaderboardData.leaderboard[2].avg_tat_days} days</strong>
+                      </div>
+                      <div>
+                        <span style={{ color: '#9a3412' }}>Volume:</span> <strong>{leaderboardData.leaderboard[2].total_complaints.toLocaleString()}</strong>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* DETAILED LEADERBOARD TABLE */}
+              <div className="card" style={{ padding: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
+                  <div>
+                    <h3 style={{ fontSize: '1.05rem', fontWeight: '700', color: '#0f172a', margin: 0 }}>
+                      Bank Redressal Performance Standings — {leaderboardData?.selected_month}
+                    </h3>
+                    <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '3px' }}>
+                      Rankings recalculate dynamically each month based on actual intake volume, turnaround days, and SLA adherence.
+                    </div>
+                  </div>
+                  <div style={{ fontSize: '0.8rem', fontWeight: '700', color: '#2563eb' }}>
+                    Total Institutions Evaluated: {leaderboardData?.total_ranked_banks || 0}
+                  </div>
+                </div>
+
+                <div className="table-container">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th style={{ width: '80px', textAlign: 'center' }}>{t('leaderboard_rank', 'Rank')}</th>
+                        <th>{t('leaderboard_bank', 'Banking Institution')}</th>
+                        <th style={{ textAlign: 'right' }}>{t('leaderboard_total_cases', 'Intake Volume')}</th>
+                        <th style={{ textAlign: 'right' }}>{t('leaderboard_resolved_cases', 'Cases Settled')}</th>
+                        <th style={{ textAlign: 'center' }}>{t('leaderboard_res_rate', 'Resolution %')}</th>
+                        <th style={{ textAlign: 'center' }}>{t('leaderboard_sla_rate', 'SLA Discipline %')}</th>
+                        <th style={{ textAlign: 'center' }}>{t('leaderboard_avg_tat', 'Avg TAT (Days)')}</th>
+                        <th style={{ textAlign: 'center' }}>{t('leaderboard_reopen_rate', 'Reopen %')}</th>
+                        <th style={{ textAlign: 'center' }}>{t('leaderboard_score', 'Composite Score')}</th>
+                        <th style={{ textAlign: 'center' }}>{t('leaderboard_grade', 'Regulatory Grade')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(leaderboardData?.leaderboard || []).map((bank) => {
+                        const rankMedal = bank.rank === 1 ? '🥇' : (bank.rank === 2 ? '🥈' : (bank.rank === 3 ? '🥉' : `#${bank.rank}`));
+                        const isTop3 = bank.rank <= 3;
+                        return (
+                          <tr key={bank.company_id} style={{ background: bank.rank === 1 ? '#fffdf5' : 'inherit' }}>
+                            <td style={{ textAlign: 'center', fontWeight: '800', fontSize: isTop3 ? '1.2rem' : '0.9rem', color: bank.rank === 1 ? '#d97706' : '#334155' }}>
+                              {rankMedal}
+                            </td>
+                            <td>
+                              <div style={{ fontWeight: '700', color: '#0f172a', fontSize: '0.92rem' }}>
+                                {bank.bank_name}
+                              </div>
+                              <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                                RBI Regulated Commercial Bank • ID #{bank.company_id}
+                              </div>
+                            </td>
+                            <td style={{ textAlign: 'right', fontWeight: '700', color: '#334155' }}>
+                              {bank.total_complaints.toLocaleString()}
+                            </td>
+                            <td style={{ textAlign: 'right', fontWeight: '700', color: '#059669' }}>
+                              {bank.resolved_complaints.toLocaleString()}
+                            </td>
+                            <td style={{ textAlign: 'center' }}>
+                              <span style={{
+                                fontWeight: '700',
+                                color: bank.resolution_rate >= 35 ? '#059669' : (bank.resolution_rate >= 25 ? '#2563eb' : '#dc2626')
+                              }}>
+                                {bank.resolution_rate}%
+                              </span>
+                            </td>
+                            <td style={{ textAlign: 'center' }}>
+                              <span style={{
+                                display: 'inline-block',
+                                padding: '2px 8px',
+                                borderRadius: '12px',
+                                fontSize: '0.75rem',
+                                fontWeight: '700',
+                                background: bank.sla_compliance_rate >= 75 ? '#f0fdf4' : (bank.sla_compliance_rate >= 50 ? '#eff6ff' : '#fef2f2'),
+                                color: bank.sla_compliance_rate >= 75 ? '#166534' : (bank.sla_compliance_rate >= 50 ? '#1e40af' : '#991b1b'),
+                                border: `1px solid ${bank.sla_compliance_rate >= 75 ? '#bbf7d0' : (bank.sla_compliance_rate >= 50 ? '#bfdbfe' : '#fecaca')}`
+                              }}>
+                                {bank.sla_compliance_rate}%
+                              </span>
+                            </td>
+                            <td style={{ textAlign: 'center', fontWeight: '600', color: '#0f172a' }}>
+                              ⚡ {bank.avg_tat_days} d
+                            </td>
+                            <td style={{ textAlign: 'center', color: bank.reopen_rate > 10 ? '#dc2626' : '#475569', fontWeight: '600' }}>
+                              {bank.reopen_rate}%
+                            </td>
+                            <td style={{ textAlign: 'center' }}>
+                              <span style={{
+                                fontSize: '1rem',
+                                fontWeight: '800',
+                                color: bank.composite_score >= 80 ? '#059669' : (bank.composite_score >= 65 ? '#2563eb' : '#d97706')
+                              }}>
+                                {bank.composite_score}
+                              </span>
+                              <span style={{ fontSize: '0.72rem', color: '#64748b' }}>/100</span>
+                            </td>
+                            <td style={{ textAlign: 'center' }}>
+                              <span style={{
+                                display: 'inline-block',
+                                padding: '3px 10px',
+                                borderRadius: '14px',
+                                fontSize: '0.75rem',
+                                fontWeight: '800',
+                                background: bank.grade.includes('A+') ? '#f0fdf4' : (bank.grade.includes('B+') ? '#eff6ff' : (bank.grade.includes('C') ? '#fffbeb' : '#fef2f2')),
+                                color: bank.grade.includes('A+') ? '#166534' : (bank.grade.includes('B+') ? '#1e40af' : (bank.grade.includes('C') ? '#b45309' : '#991b1b')),
+                                border: `1px solid ${bank.grade.includes('A+') ? '#86efac' : (bank.grade.includes('B+') ? '#93c5fd' : (bank.grade.includes('C') ? '#fde68a' : '#fca5a5'))}`
+                              }}>
+                                {bank.grade}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* SCORING METHODOLOGY FOOTER */}
+                <div style={{ marginTop: '16px', padding: '12px 16px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.75rem', color: '#64748b' }}>
+                  <strong>Composite Index Methodology:</strong> Ranked via 5 statutory KPI vectors: Resolution Throughput (25 pts), SLA Compliance (25 pts), Turnaround Speed (20 pts), Low Reopen Resistance (15 pts), and Redressal Trust (15 pts). Data recalibrates every calendar month automatically.
+                </div>
+              </div>
+            </>
+          )}
         </div>
       )}
 

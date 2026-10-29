@@ -87,7 +87,10 @@ def detect_early_warnings(db: Session, company_id: int = None) -> list:
     - Spike in delayed loan documentation
     - Unusually high SLA breach frequency
     """
-    from create_db import Complaint, Company
+    try:
+        from create_db import Complaint, Company
+    except ImportError:
+        from Python_codes.create_db import Complaint, Company
 
     warnings = []
     # Query complaints in last 14 days vs prior period
@@ -211,4 +214,105 @@ def run_what_if_simulation(
             "estimated_pending_complaints": simulated_pending,
             "projected_sla_pressure_score": sla_pressure
         }
+    }
+
+
+def get_bank_leaderboard(db: Session, selected_month: str = None) -> dict:
+    """
+    Computes Bank Performance Leaderboard ranking for a specific calendar month (YYYY-MM).
+    If selected_month is not supplied, automatically selects the latest active month in the ledger.
+    Metrics evaluated per bank:
+    1. Total Complaints Filed
+    2. Total Resolved Complaints
+    3. Resolution Rate (%)
+    4. SLA Compliance Rate (%)
+    5. Average Turnaround Time (TAT in days)
+    6. Reopen Rate (%)
+    7. Composite Bank Health Score (0-100 index) & Regulatory Grade (A+, B+, C, D)
+    """
+    from sqlalchemy import text
+    try:
+        from create_db import Complaint, Company
+    except ImportError:
+        from Python_codes.create_db import Complaint, Company
+
+    # Determine available months from complaints
+    months_query = db.execute(text(
+        "SELECT DISTINCT substr(created_at, 1, 7) as ym FROM complaints WHERE created_at IS NOT NULL ORDER BY ym DESC"
+    )).fetchall()
+    available_months = [m[0] for m in months_query if m[0] and len(m[0]) == 7]
+
+    if not available_months:
+        available_months = [datetime.utcnow().strftime("%Y-%m")]
+
+    if not selected_month or selected_month not in available_months:
+        selected_month = available_months[0]
+
+    sql = text("""
+        SELECT 
+            c.company_id,
+            c.company_name,
+            count(cmp.complaint_id) as total_received,
+            sum(case when cmp.status in ('resolved', 'closed', 'RESOLVED', 'CLOSED') then 1 else 0 end) as total_resolved,
+            sum(case when cmp.sla_breached = 1 then 1 else 0 end) as total_breached,
+            sum(case when cmp.status = 'reopened' or cmp.reopen_count > 0 then 1 else 0 end) as total_reopened,
+            avg(case when cmp.resolved_at is not null then (julianday(cmp.resolved_at) - julianday(cmp.created_at)) else null end) as avg_tat
+        FROM complaints cmp
+        JOIN companies c ON cmp.company_id = c.company_id
+        WHERE substr(cmp.created_at, 1, 7) = :month
+        GROUP BY c.company_id, c.company_name
+        HAVING count(cmp.complaint_id) > 0
+    """)
+
+    rows = db.execute(sql, {"month": selected_month}).fetchall()
+    leaderboard = []
+
+    for r in rows:
+        cid, cname, total, resolved, breached, reopened, avg_tat = r
+        total = total or 0
+        resolved = resolved or 0
+        breached = breached or 0
+        reopened = reopened or 0
+        avg_tat = float(avg_tat) if avg_tat is not None else 3.5
+
+        res_rate = (resolved / total) if total > 0 else 0.0
+        sla_rate = max(0.0, (total - breached) / total) if total > 0 else 1.0
+        reopen_rate = (reopened / total) if total > 0 else 0.0
+
+        satisfaction_proxy = max(1.0, min(5.0, 3.2 + (res_rate * 1.5) - (reopen_rate * 2.0)))
+
+        health = calculate_bank_health_score(
+            resolution_rate=res_rate,
+            sla_compliance_rate=sla_rate,
+            avg_tat_days=avg_tat,
+            reopen_rate=reopen_rate,
+            satisfaction_avg=satisfaction_proxy
+        )
+
+        leaderboard.append({
+            "company_id": cid,
+            "bank_name": cname,
+            "total_complaints": total,
+            "resolved_complaints": resolved,
+            "resolution_rate": round(res_rate * 100, 1),
+            "sla_compliance_rate": round(sla_rate * 100, 1),
+            "avg_tat_days": round(avg_tat, 1),
+            "reopen_rate": round(reopen_rate * 100, 1),
+            "composite_score": health["health_score"],
+            "grade": health["grade"],
+            "status": health["health_status"],
+            "score_breakdown": health["breakdown"]
+        })
+
+    leaderboard.sort(key=lambda x: (x["composite_score"], x["resolution_rate"]), reverse=True)
+
+    for idx, bank in enumerate(leaderboard, start=1):
+        bank["rank"] = idx
+
+    return {
+        "selected_month": selected_month,
+        "available_months": available_months,
+        "total_ranked_banks": len(leaderboard),
+        "leaderboard": leaderboard,
+        "top_performer": leaderboard[0] if leaderboard else None
     }
