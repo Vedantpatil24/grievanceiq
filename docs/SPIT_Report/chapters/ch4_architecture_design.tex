@@ -1,0 +1,166 @@
+\chapter{System Architecture and Detailed Design}
+
+\section{Overall System Architecture}
+GrievanceIQ is designed according to a modern, decoupled Three-Tier Architecture, separating Presentation, Application/Business Logic, and Data Persistence layers. This decoupled topology guarantees high cohesion, loose coupling, horizontal scalability, and system maintainability. Figure~\ref{fig:arch_diagram} illustrates the overarching structural organization.
+
+\begin{figure}[h]
+\centering
+\begin{verbatim}
++-----------------------------------------------------------------------------------+
+|                            CLIENT PRESENTATION TIER                               |
+|   +---------------------+  +----------------------+  +------------------------+   |
+|   | React 18 / Vite SPA |  | Web Speech API Engine|  | Trilingual State Store |   |
+|   | (Tailwind CSS, UX)  |  | (Zero-Latency Stream)|  | (EN / HI / MR Context) |   |
+|   +---------------------+  +----------------------+  +------------------------+   |
++-----------------------------------------+-----------------------------------------+
+                                          | JSON over HTTPS (RESTful API)
++-----------------------------------------v-----------------------------------------+
+|                        APPLICATION & BUSINESS LOGIC TIER                          |
+|                         [FastAPI Asynchronous Backend]                            |
+|   +---------------------------------------------------------------------------+   |
+|   | API Gateways & Middleware: CORS, Auth Verification, Dynamic Base URL      |   |
+|   +---------------------------------------------------------------------------+   |
+|   |  +--------------------+   +-------------------+   +--------------------+  |   |
+|   |  | DPDP 2023 PII Mask |   | ML Triage (TF-IDF |   | ReportLab Engine   |  |   |
+|   |  | (Regex Sanitizer)  |   | + MNB Classifier) |   | (Dynamic QR PDF)   |  |   |
+|   |  +--------------------+   +-------------------+   +--------------------+  |   |
+|   |  +--------------------+   +-------------------+   +--------------------+  |   |
+|   |  | Queueing Engine    |   | Evidence OCR &    |   | Urgency Radar &    |  |   |
+|   |  | (M/M/c Erlang-C)   |   | Entity Matcher    |   | SLA Counter        |  |   |
+|   |  +--------------------+   +-------------------+   +--------------------+  |   |
++-----------------------------------------+-----------------------------------------+
+                                          | SQL Transactions (WAL Mode)
++-----------------------------------------v-----------------------------------------+
+|                              DATA PERSISTENCE TIER                                |
+|   +---------------------------------------------------------------------------+   |
+|   | SQLite Relational Engine: Normalized 3NF Schemas                          |   |
+|   | Tables: complaints, users, audit_logs, evidence_docs, notifications       |   |
+|   +---------------------------------------------------------------------------+   |
++-----------------------------------------------------------------------------------+
+\end{verbatim}
+\caption{GrievanceIQ Three-Tier Decoupled System Architecture}
+\label{fig:arch_diagram}
+\end{figure}
+
+\section{Module-Level Architecture and Component Design}
+The system comprises six specialized backend and frontend sub-modules:
+\begin{enumerate}
+    \item \textbf{Ingestion \& Privacy Sanitization Engine:} Intercepts raw user payload; invokes compiled regular expressions to identify and mask 12-digit Aadhaar, 16-digit Debit/Credit Card, and 10-character PAN tokens before database insertion.
+    \item \textbf{Autonomous NLP Triage Engine:} Transforms sanitized complaint narratives into numerical vector representations via Scikit-Learn TF-IDF vectorizer and executes Multinomial Naive Bayes classification to derive complaint categories and confidence indices.
+    \item \textbf{Speech Processing Interface:} Manages browser-native audio capture and speech transcription sessions via the W3C Web Speech API, employing buffer-isolated state updates to eliminate duplicate line emissions.
+    \item \textbf{Verifiable Statutory PDF Engine:} Leverages Python ReportLab to layout formal legal receipts embedding metadata, bank details, timestamp watermarks, and dynamically computed 2D QR codes pointing to live web tracking URLs.
+    \item \textbf{Operational Queueing \& What-If Simulation Module:} Implements Kleinrock's $M/M/c$ multi-server queue formulas, calculating instantaneous queue dwell times, traffic intensities, and simulating staffing adjustments on simulated arrival surges.
+    \item \textbf{Evidence OCR \& Verification Engine:} Parses uploaded dispute evidence files (PDF, PNG, JPG) using EasyOCR, extracting financial attributes (Transaction Amount, Transaction Date, Bank Name, Reference ID) and scoring claim credibility against complaint records.
+\end{enumerate}
+
+\section{Data Flow Diagrams (DFD)}
+\subsection{DFD Level 0: Context Diagram}
+The Level 0 context diagram delineates the external entities interacting with the centralized GrievanceIQ platform:
+\begin{itemize}
+    \item \textbf{Complainant (Customer):} Supplies raw complaint text, audio dictation, and evidence files; receives generated Grievance IDs, statutory PDF receipts, and status updates.
+    \item \textbf{Resolution Officer:} Queries active pending complaints; reviews OCR-validated evidence and AI category suggestions; submits formal resolution memos.
+    \item \textbf{Branch Administrator:} Inspects operational capacity dashboards; configures What-If queueing simulation parameters; receives SLA breach alerts.
+\end{itemize}
+
+\subsection{DFD Level 1: Detailed Operational Flow}
+Figure~\ref{fig:dfd_level1} diagrams the internal data flow transformations from complaint ingestion through persistent resolution.
+
+\begin{figure}[h]
+\centering
+\begin{verbatim}
+ [Customer] --- (1) Submit Complaint & Evidence ---> [1.0 Ingestion Handler]
+                                                            |
+                                        Raw Complaint Text  |
+                                                            v
+                                                  [2.0 DPDP Sanitizer]
+                                                            |
+                                        Masked Text Payload |
+                                                            v
+                                                  [3.0 ML Classifier]
+                                                            |
+                                        Predicted Category  |
+                                                            v
+                                                  [4.0 Persistence Engine]
+                                                       /          \
+                         Write Record                 /            \ Query State
+                                                     v              v
+                                             [(D1) Complaints DB]  [(D2) Audit Log]
+                                                     ^              ^
+                                         Fetch Queue |              | Record Memo
+                                                     |              |
+                                              [5.0 Resolver Portal]
+                                                     ^
+                                                     | (2) Adjudicate & Resolve
+                                                     |
+                                            [Resolution Officer]
+\end{verbatim}
+\caption{DFD Level 1: GrievanceIQ Ingestion, Privacy Masking, and Resolution Pipeline}
+\label{fig:dfd_level1}
+\end{figure}
+
+\section{UML Use Case Diagram and Actor Specifications}
+\begin{itemize}
+    \item \textbf{Use Case 1 (UC-01): Lodge Grievance via Voice / Text:} Actors: Complainant. Includes PII sanitization and automated category suggestion.
+    \item \textbf{Use Case 2 (UC-02): Download Statutory Receipt with QR:} Actors: Complainant, Resolution Officer. Triggers ReportLab PDF generation with dynamic QR tracking payload.
+    \item \textbf{Use Case 3 (UC-03): Review Documentary Evidence:} Actors: Resolution Officer. Executes OCR entity extraction and credibility scoring.
+    \item \textbf{Use Case 4 (UC-04): Adjudicate Complaint:} Actors: Resolution Officer. Inputs resolution memo and transitions complaint status to `Resolved'.
+    \item \textbf{Use Case 5 (UC-05): Simulate Queueing Dynamics:} Actors: Branch Manager. Modifies arrival rate ($\lambda$) and active officers ($c$) to evaluate SLA risk.
+\end{itemize}
+
+\section{UML Sequence Diagrams}
+\subsection{Complaint Registration and PII Masking Sequence}
+\begin{enumerate}
+    \item Customer inputs complaint narrative via Web Speech dictation or keyboard on React UI.
+    \item React frontend submits asynchronous HTTP POST request to \texttt{/api/complaints/submit}.
+    \item FastAPI router intercepts request; dispatches raw string to DPDP Regex Masker.
+    \item Regex Masker scans for 16-digit cards, 12-digit Aadhaar, and 10-char PAN strings; replaces matches with redacted tokens (\texttt{XXXX-XXXX-...}).
+    \item Sanitized string is passed to Scikit-Learn MNB model; category and confidence are computed.
+    \item Complaint record is persisted to SQLite \texttt{complaints} table within a transactional block.
+    \item Response containing generated \texttt{complaint\_id} and redacted preview is returned to client.
+\end{enumerate}
+
+\subsection{Document Evidence Verification and Resolution Sequence}
+\begin{enumerate}
+    \item Resolution Officer navigates to Officer Resolution Portal and selects pending grievance.
+    \item Frontend requests complaint record and attached evidence metadata from \texttt{/api/complaints/\{id\}}.
+    \item Officer clicks ``Verify Evidence''; backend invokes EasyOCR on stored receipt image.
+    \item Extracted text is parsed using fuzzy entity matchers against complaint amount, date, and bank name.
+    \item Deterministic credibility score (0--100\%) and matched field badges are rendered on Officer UI.
+    \item Officer enters resolution memo and executes resolution dispatch; database updates status to `Resolved' and logs action to \texttt{audit\_logs}.
+\end{enumerate}
+
+\section{Database Schema Design and Normalization}
+The relational database design was subjected to formal Third Normal Form (3NF) decomposition, eliminating insertion, update, and deletion anomalies while enforcing strict referential integrity.
+
+\subsection{Third Normal Form (3NF) Compliance Analysis}
+\begin{itemize}
+    \item \textbf{1NF (Atomic Attributes):} All attributes contain single, atomic scalar values. Composite fields (such as addresses or concatenated card numbers) are strictly decomposed.
+    \item \textbf{2NF (Full Functional Dependency):} The primary keys for all tables are single-attribute identifiers (\texttt{id} or \texttt{complaint\_id}). Thus, no partial functional dependency on any subset of candidate keys exists.
+    \item \textbf{3NF (No Transitive Dependencies):} Non-key attributes depend solely upon the primary key. For example, officer identity details are foreign-keyed to \texttt{users(id)}, ensuring officer names are not redundantly replicated inside \texttt{complaints}.
+\end{itemize}
+
+\subsection{Database Schema Tables}
+\begin{itemize}
+    \item \textbf{users:} \texttt{id (INT, PK)}, \texttt{username (VARCHAR)}, \texttt{password\_hash (VARCHAR)}, \texttt{role (VARCHAR)}, \texttt{created\_at (TIMESTAMP)}.
+    \item \textbf{complaints:} \texttt{id (VARCHAR, PK)}, \texttt{customer\_name (VARCHAR)}, \texttt{bank\_name (VARCHAR)}, \texttt{category (VARCHAR)}, \texttt{description (TEXT)}, \texttt{status (VARCHAR)}, \texttt{priority (VARCHAR)}, \texttt{amount (FLOAT)}, \texttt{txn\_date (DATE)}, \texttt{created\_at (TIMESTAMP)}, \texttt{resolved\_at (TIMESTAMP)}, \texttt{resolution\_memo (TEXT)}.
+    \item \textbf{evidence\_documents:} \texttt{id (INT, PK)}, \texttt{complaint\_id (VARCHAR, FK)}, \texttt{file\_path (VARCHAR)}, \texttt{ocr\_text (TEXT)}, \texttt{credibility\_score (FLOAT)}, \texttt{verified\_at (TIMESTAMP)}.
+    \item \textbf{audit\_logs:} \texttt{id (INT, PK)}, \texttt{complaint\_id (VARCHAR, FK)}, \texttt{actor (VARCHAR)}, \texttt{action (VARCHAR)}, \texttt{details (TEXT)}, \texttt{timestamp (TIMESTAMP)}.
+    \item \textbf{notifications:} \texttt{id (INT, PK)}, \texttt{complaint\_id (VARCHAR, FK)}, \texttt{message (TEXT)}, \texttt{is\_read (BOOLEAN)}, \texttt{created\_at (TIMESTAMP)}.
+\end{itemize}
+
+\section{User Interface Design and Interaction Flow}
+The frontend interface follows a responsive, mobile-first design system utilizing Tailwind CSS. The interface incorporates:
+\begin{itemize}
+    \item Trilingual toggle (English, Hindi, Marathi) updating React Context state across 222 localized keys.
+    \item Continuous audio visualizer featuring an animated pulsing microphone indicator during active speech dictation.
+    \item Real-time SLA risk radar displaying dynamic color-coded urgency badges (Critical, Moderate, Low).
+    \item Interactive What-If simulation slider controls enabling real-time evaluation of queue changes without server roundtrips.
+\end{itemize}
+
+\section{Security and Privacy Architecture}
+In accordance with the DPDP Act 2023, data protection is implemented as an architectural invariant:
+\begin{enumerate}
+    \item \textbf{Zero-Trust Ingestion Redaction:} Unredacted card, Aadhaar, and PAN strings are destroyed in volatile memory immediately after classification and are never written to disk or logs.
+    \item \textbf{Statutory Receipt Integrity:} PDF receipts embed dynamic URLs with cryptographic grievance IDs, preventing enumeration attacks.
+    \item \textbf{Session and Credential Isolation:} Passwords are protected using cryptographic hashing; role-based route guards in React prevent unauthorized access to officer adjudication features.
+\end{enumerate}

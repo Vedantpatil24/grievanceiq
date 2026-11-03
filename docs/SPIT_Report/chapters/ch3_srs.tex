@@ -1,0 +1,81 @@
+\chapter{Software Requirements Specification (SRS)}
+
+\section{Purpose and Scope of the SRS}
+The purpose of this Software Requirements Specification (SRS) is to establish a rigorous, comprehensive, and unambiguous technical specification for the \textbf{GrievanceIQ} platform. This document delineates both the functional capabilities and the non-functional constraints governing system design, architecture, interface integration, security compliance, and operational deployment. It serves as the authoritative engineering benchmark for system verification, validation, and academic appraisal.
+
+\section{Intended Users and Stakeholders}
+\begin{enumerate}
+    \item \textbf{Bank Customers / Aggrieved Depositors:} Individuals filing disputes, tracking case progression, dictating voice complaints, and downloading statutory receipts.
+    \item \textbf{Grievance Redressal Officers (Resolvers):} Bank personnel evaluating evidence documents, verifying claim veracity, reviewing AI decision traces, and executing formal resolution memos.
+    \item \textbf{Branch Managers \& Administrative Executives:} Supervisory authorities monitoring SLA adherence, inspecting officer productivity, simulating capacity surges, and auditing DPDP Act compliance.
+    \item \textbf{Regulatory Authorities (e.g., RBI Ombudsman, Auditors):} Independent oversight bodies auditing resolution fairness, average time-to-redress, and consumer protection adherence.
+\end{enumerate}
+
+\section{Overall Product Description}
+GrievanceIQ is an enterprise-grade, decoupled three-tier software architecture. The frontend is built as a single-page reactive application using React 18, Vite, and Tailwind CSS. The backend is an asynchronous RESTful microservice powered by Python FastAPI, Uvicorn (ASGI), and SQLite. The platform provides real-time speech processing via browser-native Web Speech interfaces, dynamic 2D barcode generation via ReportLab, and machine-learning text classification via Scikit-Learn.
+
+\section{Functional Requirements}
+The core operational requirements of GrievanceIQ are formalized in Table~\ref{tab:functional_requirements}.
+
+\begin{table}[p]
+\centering
+\caption{Formal Functional Requirements Specification (FR-01 to FR-10)}
+\label{tab:functional_requirements}
+\begin{tabular}{|p{1.4cm}|p{3.2cm}|p{3.2cm}|p{3.2cm}|p{3.4cm}|}
+\hline
+\textbf{Req. ID} & \textbf{Requirement Title} & \textbf{Input} & \textbf{Expected Processing} & \textbf{Output / Acceptance Criteria} \\ \hline
+\textbf{FR-01} & Trilingual Complaint Registration & Customer details, text description, bank, transaction ID & Ingestion parsing, trilingual encoding check & Generated Complaint ID (e.g., GIQ-2026-X) within 200\,ms \\ \hline
+\textbf{FR-02} & Autonomous ML Categorization & Plain-text complaint description & TF-IDF vectorization + Multinomial Naive Bayes & Category assignment with confidence score $\ge 0.50$ \\ \hline
+\textbf{FR-03} & Real-Time Voice Dictation & Spoken audio stream (Microphone) & W3C Web Speech API event handling & Real-time transcript with zero duplicate lines \\ \hline
+\textbf{FR-04} & DPDP Act 2023 PII Masking & Raw text containing Card/Aadhaar/PAN & Regex token replacement (\texttt{XXXX-XXXX-...}) & Scrubbed text; zero unmasked PII saved to DB \\ \hline
+\textbf{FR-05} & Statutory PDF Receipt Generation & Complaint metadata, grievance ID & ReportLab canvas layout, dynamic QR encoding & Valid PDF download ($< 150\,\text{KB}$) with scannable QR \\ \hline
+\textbf{FR-06} & Document Evidence OCR Verification & Uploaded image (PNG/JPG) or PDF bill & OCR text extraction + 4-point entity matching & Verification score (0--100\%) and entity match badges \\ \hline
+\textbf{FR-07} & Predictive Queue Modeling ($M/M/c$) & Arrival rate $\lambda$, service rate $\mu$, servers $c$ & Analytical Erlang-C queueing computation & Dwell time $W_q$, utilization $\rho$, and breach probability \\ \hline
+\textbf{FR-08} & Dynamic SLA Tracking \& Alerts & Complaint timestamps, priority tier & Time delta comparison against 72h / 24h limits & Visual color-coded countdowns and breach badges \\ \hline
+\textbf{FR-09} & AI Batch \& Manual Redressal & Resolution memo text, officer signature & State transition from Pending $\rightarrow$ Resolved & Audit log entry, resolution timestamp, memo saved \\ \hline
+\textbf{FR-10} & Trilingual Dynamic UI Localization & Selected language state (EN/HI/MR) & React Context provider key lookup & Instantaneous UI language swap across 222 keys \\ \hline
+\end{tabular}
+\end{table}
+
+\section{Non-Functional Requirements}
+\begin{itemize}
+    \item \textbf{Performance:} All transactional REST endpoints must respond within 150\,ms under standard operational conditions. Analytical computation endpoints must respond within 50\,ms through memory-optimized aggregations.
+    \item \textbf{Scalability:} The architectural data layer and async event loops must sustain at least 100 concurrent HTTP requests without connection drops or resource exhaustion.
+    \item \textbf{Availability and Reliability:} The backend must maintain 99.9\% uptime. Transactional database operations must adhere strictly to ACID properties, utilizing explicit commit/rollback mechanisms.
+    \item \textbf{Security and Privacy:}
+    \begin{itemize}
+        \item Full compliance with India's DPDP Act 2023: customer Aadhaar numbers, 16-digit debit/credit card numbers, and Permanent Account Numbers must be masked prior to persistence.
+        \item Role-Based Access Control (RBAC) ensuring customer complaints can only be resolved by authorized bank officers.
+        \item Zero persistent plain-text logging of sensitive customer credentials.
+    \end{itemize}
+    \item \textbf{Usability and Accessibility:} The client interface must support high-contrast dark and light visual modes, conform to trilingual standards across English, Hindi, and Marathi, and provide accessible keyboard navigation.
+    \item \textbf{Maintainability and Portability:} Decoupled frontend and backend architectures packaged with standardized configuration files (\texttt{vite.config.js}, \texttt{requirements.txt}), enabling rapid deployment across Windows, Linux, and containerized Docker environments.
+\end{itemize}
+
+\section{Hardware and Software Requirements}
+\subsection{Hardware Requirements}
+\begin{itemize}
+    \item \textbf{Processor:} Quad-Core 64-bit x86/ARM Processor (Intel Core i5 8th Gen / AMD Ryzen 5 or equivalent).
+    \item \textbf{Memory (RAM):} Minimum 8.0 GB (16.0 GB recommended for concurrent OCR model execution).
+    \item \textbf{Storage:} Minimum 2.0 GB free solid-state storage (SSD) for database records, models, and virtual environments.
+    \item \textbf{Audio Input:} Standard microphone hardware supporting 16 kHz or 44.1 kHz PCM audio capture for voice dictation.
+\end{itemize}
+
+\subsection{Software Requirements}
+\begin{itemize}
+    \item \textbf{Operating System:} Microsoft Windows 10/11, Ubuntu Linux 22.04 LTS, or macOS 13+.
+    \item \textbf{Backend Runtime:} Python 3.10.x or 3.11.x 64-bit.
+    \item \textbf{Web Framework:} FastAPI v0.100+ with Uvicorn ASGI Web Server.
+    \item \textbf{Frontend Runtime:} Node.js v18.x or v20.x LTS, with NPM v9.x+.
+    \item \textbf{Frontend Framework:} React 18.2, Vite 5.x, Tailwind CSS 3.x, Lucide React Icons.
+    \item \textbf{Machine Learning \& Data Science:} Scikit-Learn, NumPy, Pandas, Joblib.
+    \item \textbf{Document \& Graphics Processing:} ReportLab 4.x, Pillow 10.x, EasyOCR.
+    \item \textbf{Browser Compatibility:} Google Chrome 100+, Microsoft Edge 100+ (for full W3C Web Speech API support).
+\end{itemize}
+
+\section{Design and Implementation Constraints}
+\begin{itemize}
+    \item The speech recognition pipeline is governed by browser permission models and requires active user microphone authorization.
+    \item ReportLab PDF canvas coordinates require deterministic typography calculations to guarantee zero overflow across multi-page complaint descriptions.
+    \item SQLite database concurrent write concurrency is managed via WAL (Write-Ahead Logging) mode to prevent table locking anomalies during simultaneous grievance submissions.
+\end{itemize}

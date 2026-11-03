@@ -1,0 +1,141 @@
+\chapter{Algorithms, Data Structures and Computational Models}
+
+\section{Overview of Computational Approach}
+GrievanceIQ integrates both probabilistic machine learning models and deterministic analytical systems to resolve banking operational bottlenecks. This chapter formalizes the underlying algorithmic specifications, mathematical formulations, data structures, and computational complexity analyses governing the platform.
+
+\section{Mathematical Formulations}
+
+\subsection{Multinomial Naive Bayes and TF-IDF Text Classification}
+Text classification processes complaint descriptions into high-dimensional vector representations. For a term $t$ in document $d$ within a corpus of $N$ documents, the Term Frequency--Inverse Document Frequency (TF-IDF) weight is given by:
+\begin{equation}
+\text{TF-IDF}(t, d, D) = \text{TF}(t, d) \times \log\left(\frac{1 + N}{1 + |\{d \in D : t \in d\}|}\right) + 1
+\end{equation}
+The Multinomial Naive Bayes classifier estimates the most probable banking category $c^* \in C$ for feature vector $\mathbf{x} = (x_1, x_2, \dots, x_v)$ by maximizing the posterior probability using Bayes' theorem:
+\begin{equation}
+c^* = \arg\max_{c \in C} P(c) \prod_{i=1}^{v} P(x_i \mid c)^{x_i}
+\end{equation}
+Applying Laplace smoothing to eliminate zero-frequency anomalies:
+\begin{equation}
+P(x_i \mid c) = \frac{N_{ci} + \alpha}{N_c + \alpha |V|}
+\end{equation}
+where $N_{ci}$ is the count of feature $x_i$ appearing in class $c$, $N_c$ is the total count of all features in class $c$, $|V|$ is vocabulary size, and $\alpha = 1.0$ is the smoothing hyperparameter.
+
+\subsection{Kleinrock $M/M/c$ Queueing Theory and Erlang-C Formula}
+Banking grievance resolution queues with $c$ parallel resolution officers, Poisson arrival rate $\lambda$ (complaints/hour), and exponential service rate $\mu$ (complaints/officer/hour) operate with traffic intensity:
+\begin{equation}
+\rho = \frac{\lambda}{c \mu} \quad (\text{Stability condition: } \rho < 1)
+\end{equation}
+The probability that all $c$ officers are idle, denoted $P_0$, is computed as:
+\begin{equation}
+P_0 = \left[ \sum_{k=0}^{c-1} \frac{(c\rho)^k}{k!} + \frac{(c\rho)^c}{c!(1-\rho)} \right]^{-1}
+\end{equation}
+The Erlang-C formula determines the steady-state probability that an arriving grievance must wait in queue:
+\begin{equation}
+C(c, \lambda/\mu) = P(\text{Wait} > 0) = \frac{\frac{(c\rho)^c}{c!(1-\rho)}}{\sum_{k=0}^{c-1} \frac{(c\rho)^k}{k!} + \frac{(c\rho)^c}{c!(1-\rho)}} = \frac{(c\rho)^c}{c!(1-\rho)} P_0
+\end{equation}
+By Little's Law, the expected queue dwell time $W_q$ is:
+\begin{equation}
+W_q = \frac{C(c, \lambda/\mu)}{c\mu - \lambda} = \frac{C(c, \lambda/\mu)}{c\mu(1 - \rho)}
+\end{equation}
+Given a statutory SLA threshold $T_{\text{SLA}}$ (e.g., 72 hours), the probability of exceeding the SLA is:
+\begin{equation}
+P(W > T_{\text{SLA}}) = C(c, \lambda/\mu) \cdot \exp\left( -c\mu(1 - \rho) T_{\text{SLA}} \right)
+\end{equation}
+
+\section{Algorithm Specifications}
+
+\subsection{Algorithm 1: DPDP Act 2023 Case-Insensitive PII Masking}
+Algorithm~\ref{alg:pii_mask} formalizes the deterministic sanitization pipeline applied at the API ingestion boundary.
+
+\begin{algorithm}[h]
+\caption{Case-Insensitive DPDP Act 2023 Financial PII Sanitization}
+\label{alg:pii_mask}
+\begin{algorithmic}[1]
+\Require Raw complaint description string $S_{\text{raw}}$
+\Ensure Fully sanitized string $S_{\text{clean}}$ with zero plain-text PII
+\State $S_{\text{clean}} \gets S_{\text{raw}}$
+\State \textbf{Pattern} $R_{\text{card}} \gets \text{Regex}(\verb|\b(?:\d{4}[ -]?){3}\d{4}\b|)$
+\State \textbf{Pattern} $R_{\text{aadhaar}} \gets \text{Regex}(\verb|\b\d{4}[ -]?\d{4}[ -]?\d{4}\b|)$
+\State \textbf{Pattern} $R_{\text{pan}} \gets \text{Regex}(\verb|\b[A-Za-z]{5}\d{4}[A-Za-z]\b|, \text{IGNORECASE})$
+\State $S_{\text{clean}} \gets \text{ReplaceMatches}(S_{\text{clean}}, R_{\text{card}}, \text{"XXXX-XXXX-XXXX-XXXX"})$
+\State $S_{\text{clean}} \gets \text{ReplaceMatches}(S_{\text{clean}}, R_{\text{aadhaar}}, \text{"XXXX-XXXX-XXXX"})$
+\State $S_{\text{clean}} \gets \text{ReplaceMatches}(S_{\text{clean}}, R_{\text{pan}}, \text{"XXXXX0000X"})$
+\State \Return $S_{\text{clean}}$
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Algorithm 2: Non-Destructive Continuous Voice Dictation Accumulator}
+In browser environments, the W3C Web Speech API fires repetitive \texttt{onresult} events containing cumulative segments alongside volatile interim hypotheses. Naive concatenation causes repeating loops. Algorithm~\ref{alg:voice_acc} formalizes the dual-state buffering mechanism that guarantees zero line duplication.
+
+\begin{algorithm}[h]
+\caption{Non-Destructive Continuous Voice Dictation Buffer}
+\label{alg:voice_acc}
+\begin{algorithmic}[1]
+\Require Recognition event stream $E$, Base committed text $T_{\text{base}}$
+\Ensure Stable continuous transcript $T_{\text{final}}$
+\State \textbf{Initialize} $T_{\text{sessionFinal}} \gets \text{""}$, $T_{\text{interim}} \gets \text{""}$
+\For{each event result $R_i \in E.\text{results}$ from index $E.\text{resultIndex}$ to length}
+    \State $segment \gets R_i[0].\text{transcript}$
+    \If{$R_i.\text{isFinal} == \textbf{true}$}
+        \State $T_{\text{sessionFinal}} \gets T_{\text{sessionFinal}} + segment + \text{" "}$
+    \Else
+        \State $T_{\text{interim}} \gets T_{\text{interim}} + segment$
+    \EndIf
+\EndFor
+\State $T_{\text{display}} \gets \text{Trim}(T_{\text{base}} + \text{" "} + T_{\text{sessionFinal}} + T_{\text{interim}})$
+\State \Return $T_{\text{display}}$
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Algorithm 3: Evidence OCR 4-Point Entity Fuzzy Matcher}
+Algorithm~\ref{alg:ocr_match} computes the document credibility score based on extracted OCR tokens.
+
+\begin{algorithm}[h]
+\caption{Four-Point Documentary Credibility Scoring}
+\label{alg:ocr_match}
+\begin{algorithmic}[1]
+\Require OCR extracted text $T_{\text{ocr}}$, Complaint record $C$
+\Ensure Credibility score $Score \in [0, 100]$, Matched entity badges $B$
+\State $Score \gets 0$, $B \gets \emptyset$
+\If{$\text{ContainsAmount}(T_{\text{ocr}}, C.\text{amount})$}
+    \State $Score \gets Score + 35$, $B \gets B \cup \{\text{"Amount Matched"}\}$
+\EndIf
+\If{$\text{ContainsDate}(T_{\text{ocr}}, C.\text{txn\_date})$}
+    \State $Score \gets Score + 25$, $B \gets B \cup \{\text{"Date Matched"}\}$
+\EndIf
+\If{$\text{FuzzyMatch}(T_{\text{ocr}}, C.\text{bank\_name}) \ge 0.80$}
+    \State $Score \gets Score + 20$, $B \gets B \cup \{\text{"Bank Name Matched"}\}$
+\EndIf
+\If{$\text{ContainsRefID}(T_{\text{ocr}}, C.\text{ref\_id})$}
+    \State $Score \gets Score + 20$, $B \gets B \cup \{\text{"Transaction ID Matched"}\}$
+\EndIf
+\State \Return $(Score, B)$
+\end{algorithmic}
+\end{algorithm}
+
+\section{Complexity and Big-O Analysis}
+Table~\ref{tab:complexity_analysis} summarizes the theoretical time and auxiliary space complexities of the primary algorithmic routines implemented across the platform.
+
+\begin{table}[h]
+\centering
+\caption{Asymptotic Time and Space Complexity Analysis}
+\label{tab:complexity_analysis}
+\begin{tabular}{|p{4.5cm}|p{3.0cm}|p{3.0cm}|p{4.0cm}|}
+\hline
+\textbf{Computational Routine} & \textbf{Time Complexity} & \textbf{Space Complexity} & \textbf{Operational Context} \\ \hline
+TF-IDF Feature Transform & $O(L \cdot |V|)$ & $O(|V|)$ sparse & $L$ words, $|V|$ vocabulary \\ \hline
+MNB Category Inference & $O(|C| \cdot |V|)$ & $O(|C|)$ & $|C|$ classes, $|V|$ vocabulary \\ \hline
+Regex DPDP Sanitization & $O(N)$ linear & $O(N)$ buffer & $N$ characters in input \\ \hline
+Voice Dictation Accumulation & $O(K)$ & $O(K)$ & $K$ transcript tokens \\ \hline
+Erlang-C Queue Evaluation & $O(c)$ & $O(1)$ scalar & $c$ service officers \\ \hline
+ReportLab PDF Generation & $O(M)$ & $O(M)$ binary & $M$ bytes metadata + QR \\ \hline
+Fuzzy Entity String Match & $O(U \cdot W)$ & $O(U)$ & $U$ OCR tokens, $W$ entity \\ \hline
+\end{tabular}
+\end{table}
+
+\section{Invariants, Pre-Conditions, and Post-Conditions}
+\begin{itemize}
+    \item \textbf{DPDP Redaction Invariant:} For any complaint $C$ stored in the database, no substring of $C.\text{description}$ shall match regular expressions $R_{\text{card}}$, $R_{\text{aadhaar}}$, or $R_{\text{pan}}$.
+    \item \textbf{Queue Stability Pre-Condition:} The Erlang-C queueing model enforces $\lambda < c\mu$. If $\lambda \ge c\mu$, the system automatically branches into an asymptotic saturation handler returning $\rho = 1.0$ and $W_q \rightarrow \infty$ to prevent numerical division-by-zero crashes.
+    \item \textbf{State Machine Transition Post-Condition:} A complaint record can transition from `Pending' to `Resolved' if and only if an authorized officer signature and a non-empty resolution memo are supplied.
+\end{itemize}

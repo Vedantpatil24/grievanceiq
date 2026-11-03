@@ -1,0 +1,74 @@
+\chapter{Mapping with Computer Engineering Core Courses (APNI Leap)}
+
+\section{Overview of the APNI Leap Philosophy}
+The \textbf{APNI Leap} (Application, Practice, Networking, Innovation) framework formulated at Sardar Patel Institute of Technology mandates that engineering students bridge theoretical curricula with rigorous, production-grade software engineering. Rather than treating courses as isolated academic silos, GrievanceIQ integrates core principles studied across Semesters I through IV into a coherent, resilient, and enterprise-grade banking intelligence platform. This chapter delineates how specific concepts from six core disciplines directly govern the implementation of GrievanceIQ.
+
+\section{Software Engineering (SE)}
+The development of GrievanceIQ adhered strictly to disciplined software engineering methodologies:
+\begin{itemize}
+    \item \textbf{Agile and Iterative Lifecycle:} Developed across 6 major sprint milestones (Version\_0 through Version\_6), each marked by explicit git releases, changelogs, and automated regression validations.
+    \item \textbf{Decoupled Architectural Modularity:} Clean separation between the React single-page frontend, asynchronous FastAPI microservice, and SQLite transactional persistence.
+    \item \textbf{Formal Version Control and Branching Strategy:} Maintained on GitHub (\url{https://github.com/Vedantpatil24/grievanceiq}) featuring dedicated branch tracking (\texttt{main}, \texttt{Version\_0} through \texttt{Version\_6}, \texttt{backup-stable-sqlite}) with atomic semantic commits.
+    \item \textbf{Exhaustive Verification \& Quality Assurance:} Creation and continuous execution of a 48-case end-to-end automated test suite verifying functional requirements, input edge cases, and performance regressions.
+\end{itemize}
+
+\section{Database Management Systems (DBMS)}
+The data layer of GrievanceIQ is designed and managed using formal database engineering principles:
+\begin{itemize}
+    \item \textbf{Relational Decomposition and 3NF Normalization:} Relational schemas (\texttt{users}, \texttt{complaints}, \texttt{evidence\_documents}, \texttt{audit\_logs}, \texttt{notifications}) satisfy First, Second, and Third Normal Forms, eliminating insertion, update, and deletion anomalies.
+    \item \textbf{ACID Transaction Guarantees:} Complaint registration, status updates, and audit logging execute within atomic transaction blocks (\texttt{BEGIN IMMEDIATE ... COMMIT}), ensuring consistency across concurrent operations.
+    \item \textbf{Write-Ahead Logging (WAL) Mode:} SQLite is configured with \texttt{PRAGMA journal\_mode = WAL;}, allowing concurrent readers to query analytics while new complaints are written without lock contention.
+    \item \textbf{B-Tree Indexing \& Query Optimization:} Indexed lookups on \texttt{complaint\_id}, \texttt{status}, and \texttt{created\_at} timestamps reduce queue aggregation latencies from hundreds of milliseconds to under 30\,ms.
+\end{itemize}
+
+\section{Computer Networks (CN)}
+Network protocols and communication patterns form the operational backbone connecting the client and server:
+\begin{itemize}
+    \item \textbf{RESTful API Architecture:} Clean uniform interface adhering strictly to HTTP verb semantics (GET for queries, POST for state mutations, PUT/PATCH for status adjudication) and RFC 7231 status codes (200 OK, 201 Created, 400 Bad Request, 401 Unauthorized, 404 Not Found, 422 Unprocessable Entity).
+    \item \textbf{CORS Security Policy:} Explicit Cross-Origin Resource Sharing (CORS) middleware configuration allowing origin authorization, header whitelisting, and method filtering for client-server decoupling.
+    \item \textbf{Payload Serialization \& Streaming:} Optimized JSON serialization and streaming binary endpoints for instant ReportLab PDF downloads with standard \texttt{application/pdf} MIME types and content-disposition attachments.
+    \item \textbf{Dynamic Endpoint Base URL Resolution:} QR code generator dynamically queries incoming HTTP \texttt{request.base\_url} headers to dynamically construct tracking URLs that adapt seamlessly between \texttt{localhost:8000} and cloud production domains.
+\end{itemize}
+
+\section{Operating Systems (OS)}
+Underlying systems concepts directly optimize the execution performance of the platform:
+\begin{itemize}
+    \item \textbf{Asynchronous Event Loops \& Non-Blocking I/O:} Built atop Python's \texttt{asyncio} and Starlette ASGI server (Uvicorn), enabling high-concurrency request handling without blocking operating system threads during I/O waits.
+    \item \textbf{Process and Memory Isolation:} Heavy optical character recognition (EasyOCR) model weights are loaded once as application singletons during startup lifecycle hooks, preventing repetitive memory allocations and OS thrashing.
+    \item \textbf{Concurrent Resource Management:} Thread pools and async workers manage simultaneous background PDF synthesis and database writes without thread starvation.
+\end{itemize}
+
+\section{Data Structures and Analysis of Algorithms (DS \& DAA)}
+Algorithmic rigor governs both data transformation and predictive capacity modeling:
+\begin{itemize}
+    \item \textbf{Sparse Matrix Representation in TF-IDF:} Vocabulary token frequencies are stored in Compressed Sparse Row (CSR) matrices, conserving memory during text vectorization.
+    \item \textbf{Deterministic Finite Automata (DFA) in Regex:} PII sanitization leverages pre-compiled DFA regex engines to achieve optimal $O(N)$ linear time scanning over input strings.
+    \item \textbf{Multi-Server Queueing Algorithms ($M/M/c$):} Closed-form numerical evaluation of Erlang-C waiting probabilities and exponential waiting time distributions to forecast SLA breaches.
+    \item \textbf{Fuzzy String Comparison:} Multi-parameter token intersection and Levenshtein distance metrics to score documentary OCR evidence against structured records.
+\end{itemize}
+
+\section{Cloud Computing and Distributed Systems}
+Architectural considerations ensure rapid cloud portability and resilience:
+\begin{itemize}
+    \item \textbf{Microservices Readiness:} Stateless application tier decoupled from the persistent datastore, allowing the FastAPI service and React static build to be containerized into lightweight Docker images.
+    \item \textbf{Edge-Deployable Single-Page Application:} Optimized static production assets built via Vite can be distributed directly via Content Delivery Networks (CDNs) or serverless edge hosts (e.g., Vercel, Netlify).
+\end{itemize}
+
+\section{Summary of Course Integration}
+Table~\ref{tab:apni_leap_mapping} summarizes the direct mapping between theoretical computer engineering subjects and their concrete implementation within GrievanceIQ.
+
+\begin{table}[h]
+\centering
+\caption{Comprehensive APNI Leap Curriculum Mapping Matrix}
+\label{tab:apni_leap_mapping}
+\begin{tabular}{|p{3.2cm}|p{4.2cm}|p{4.2cm}|p{3.4cm}|}
+\hline
+\textbf{Core Course} & \textbf{Theoretical Concept} & \textbf{Applied Implementation} & \textbf{Codebase Evidence} \\ \hline
+\textbf{Software Engg.} & Agile sprints, Git branches, regression testing & 6 Version releases, 48-case test suite, semantic commits & \texttt{test\_suite\_audit.py}, Git branches \\ \hline
+\textbf{DBMS} & 3NF Normalization, ACID transactions, WAL mode & 5 Relational tables, transaction commit/rollback, WAL pragma & \texttt{schema\_dbms.sql}, \texttt{main.py} DB block \\ \hline
+\textbf{Computer Networks} & RESTful architecture, HTTP status codes, CORS & Async REST routes, HTTP 200/401/422, CORS middleware & \texttt{main.py} FastAPI endpoints \\ \hline
+\textbf{Operating Systems} & Async event loops, non-blocking I/O, singleton caching & Uvicorn ASGI workers, OCR singleton model cache & \texttt{main.py} startup events, asyncio \\ \hline
+\textbf{Data Structures} & TF-IDF sparse matrices, DFA regex, queueing models & CSR matrices in MNB, $O(N)$ PII regex, Erlang-C formulas & \texttt{main.py} queue \& PII masking routines \\ \hline
+\textbf{Cloud Computing} & Decoupled tiers, edge assets, dynamic base URLs & React/Vite SPA bundle, dynamic QR base URL synthesis & \texttt{frontend/dist}, \texttt{main.py} QR engine \\ \hline
+\end{tabular}
+\end{table}

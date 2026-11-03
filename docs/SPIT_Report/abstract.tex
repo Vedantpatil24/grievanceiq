@@ -1,0 +1,28 @@
+\newpage
+\thispagestyle{plain}
+\begin{center}
+\Large\textbf{ABSTRACT}
+\end{center}
+\vspace{0.8cm}
+
+\noindent Modern banking ecosystems in India process tens of millions of digital financial transactions daily, yet grievance redressal frameworks (e.g., legacy CPGRAMS, RBI CMS portals) suffer from chronic operational deficiencies. Chief among these are multi-week resolution latencies, opaque black-box workflows, lack of real-time multi-modal customer accessibility, and the complete absence of automated regulatory compliance enforcement. Crucially, existing platforms leave unredacted personally identifiable information (PII) exposed in plain text across log streams and operator screens, violating India's Digital Personal Data Protection (DPDP) Act of 2023.
+
+\vspace{0.4cm}
+\noindent To resolve these critical systemic challenges, this project conceives, designs, and deploys \textbf{GrievanceIQ}—an autonomous banking grievance redressal and predictive operational intelligence platform built upon a decoupled 3-tier reactive distributed architecture. The system leverages an asynchronous \textbf{FastAPI} (Python) backend coupled with a high-performance \textbf{React 18 / Vite / TailwindCSS} frontend, orchestrating an optimized SQLite transactional datastore. 
+
+\vspace{0.4cm}
+\noindent GrievanceIQ integrates six major engineering and algorithmic innovations:
+\begin{enumerate}
+    \item \textbf{Autonomous Multilingual NLP Pipeline:} Utilizes TF-IDF vectorization and Multinomial Naive Bayes trained on an empirical corpus of 15,000 multi-category banking grievances, achieving an operational category classification accuracy of 89.2\% across English, Hindi, and Marathi.
+    \item \textbf{Continuous Voice Dictation Engine:} Employs the browser-native W3C Web Speech API with non-destructive session accumulation, dual-state buffer flushing, and interim streaming, delivering zero-latency hands-free dictation for vernacular and non-tech-savvy users without repeated utterance degradation.
+    \item \textbf{Strict DPDP Act 2023 Compliance:} Integrates real-time, case-insensitive regular expression sanitization engines that automatically mask Aadhaar numbers, 16-digit debit/credit card numbers, and alphanumeric Permanent Account Numbers (PAN) before persistent database storage or operator dispatch.
+    \item \textbf{Dynamic Statutory PDF Receipts with Verifiable QR Code:} Synthesizes cryptographic ReportLab receipts embedding dynamic HTTP tracking endpoints directly into 2D ISO/IEC 18004:2015 QR matrix codes, granting complainants one-scan live grievance status access.
+    \item \textbf{Predictive Capacity Modeling \& Escalation Radars:} Implements an analytical $M/M/c$ queueing model and synthetic spike simulations to compute real-time operational metrics (utilization $\rho$, SLA breach probability $P_{\text{breach}}$, queue dwell time $W_q$), alongside an interactive What-If staffing sandbox.
+    \item \textbf{Explainable AI (XAI) \& Intelligent Document Evidence Verification:} Combines domain-specific optical character recognition (OCR) and strict multi-parameter fuzzy entity matching (Amount, Transaction Date, Bank IFSC, Reference ID) to compute deterministic documentary credibility scores (0--100\%), accompanied by structured reasoning traces.
+\end{enumerate}
+
+\vspace{0.4cm}
+\noindent System verification was executed via an exhaustive 48-case end-to-end automated testing suite spanning API health, multilingual key parity (222/222 keys across EN/HI/MR), boundary constraints, and concurrent simulation loads, achieving a \textbf{100\% pass rate (48/48)}. Algorithmic caching reduced analytics calculation latencies from 855\,ms to under 30\,ms, while production frontend bundle optimizations achieved sub-second Time-to-Interactive (TTI). GrievanceIQ demonstrates the rigorous application of fundamental Computer Engineering principles—Software Engineering, Database Management Systems, Computer Networks, Operating Systems, Data Structures, and Cloud Computing—producing an auditable, enterprise-ready banking intelligence platform.
+
+\vspace{0.6cm}
+\noindent \textbf{Keywords:} Autonomous Grievance Redressal, Banking Operational Intelligence, Multinomial Naive Bayes, DPDP Act 2023 PII Masking, Web Speech API, ReportLab Statutory Receipts, $M/M/c$ Queueing Model, Explainable AI.
