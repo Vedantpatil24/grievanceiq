@@ -270,6 +270,7 @@ export const translations = {
     lang_label: "Language / भाषा",
     lang_en: "English",
     lang_hi: "हिंदी (Hindi)",
+    lang_mr: "मराठी (Marathi)",
 
     // ─── Auth / Login & Register ─────────────────────────────────────────────
     login_portal_title: "बैंकिंग शिकायत निवारण पोर्टल",
@@ -516,6 +517,7 @@ export const translations = {
     lang_label: "भाषा / Language",
     lang_en: "English",
     lang_hi: "हिंदी (Hindi)",
+    lang_mr: "मराठी (Marathi)",
     login_portal_title: "बँकिंग तक्रार निवारण पोर्टल",
     login_rbi_badge: "आरबीआय लोकपाल प्रणालीशी सुसंगत",
     login_hero_line1: "तुमच्या सर्व बँकिंग तक्रारी,",

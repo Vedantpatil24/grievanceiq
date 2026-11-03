@@ -239,11 +239,11 @@ def mask_pii_data(text: str):
         found = True
         masked = re.sub(aadhaar_pat, lambda m: f"XXXX-XXXX-{m.group(0)[-4:]}", masked)
 
-    # 3. 10-character PAN format (e.g. ABCDE1234F)
-    pan_pat = r'\b[A-Z]{5}(\d{4})[A-Z]\b'
+    # 3. 10-character PAN format (e.g. ABCDE1234F or abcde1234f under DPDP Act)
+    pan_pat = r'(?i)\b[A-Z]{5}(\d{4})[A-Z]\b'
     if re.search(pan_pat, masked):
         found = True
-        masked = re.sub(pan_pat, r'XXXXX\1X', masked)
+        masked = re.sub(pan_pat, lambda m: f"XXXXX{m.group(1)}X", masked)
 
     return masked, found
 
@@ -302,9 +302,11 @@ def build_statutory_pdf_receipt(complaint, bank_name="Bank of Baroda"):
     elements.append(Paragraph("Banking Consumer Redressal Forum | Statutory Grievance Acknowledgment & Audit Record", sub_style))
     elements.append(Spacer(1, 12))
 
-    # QR Code
+    # QR Code (dynamic frontend base URL support)
+    import os
     tkn = complaint.token or "GRV-PENDING"
-    qr = QrCodeWidget(f"http://localhost:5173/track?token={tkn}")
+    frontend_base = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip('/')
+    qr = QrCodeWidget(f"{frontend_base}/track?token={tkn}")
     qr.barWidth = 75
     qr.barHeight = 75
     d = Drawing(75, 75)
