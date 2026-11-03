@@ -5,6 +5,8 @@ and Admin/Officer Workspace API.
 """
 
 import os
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 import shutil
 from datetime import datetime, timedelta
 from typing import Optional, List
@@ -1436,22 +1438,37 @@ def get_admin_audit_logs(
 
 @app.get("/api/analytics/overview")
 def get_analytics_overview(db: Session = Depends(get_db)):
-    total = db.query(func.count(Complaint.complaint_id)).scalar() or 0
-    resolved = db.query(func.count(Complaint.complaint_id)).filter(Complaint.status == "resolved").scalar() or 0
-    bot_resolved = db.query(func.count(Complaint.complaint_id)).filter(Complaint.resolution_mode == "BOT").scalar() or 0
-    human_resolved = db.query(func.count(Complaint.complaint_id)).filter(Complaint.resolution_mode == "HUMAN").scalar() or 0
-    escalated = db.query(func.count(Complaint.complaint_id)).filter(Complaint.status.in_(["escalated", "in_progress", "reopened"])).scalar() or 0
-    
-    avg_score = db.query(func.avg(Complaint.validity_score)).scalar() or 0
+    from sqlalchemy import case as sa_case
+    # Single-pass aggregation — replaces 8 sequential queries
+    row = db.query(
+        func.count(Complaint.complaint_id).label("total"),
+        func.count(sa_case((Complaint.status == "resolved", 1))).label("resolved"),
+        func.count(sa_case((Complaint.resolution_mode == "BOT", 1))).label("bot_resolved"),
+        func.count(sa_case((Complaint.resolution_mode == "HUMAN", 1))).label("human_resolved"),
+        func.count(sa_case((Complaint.status.in_(["escalated", "in_progress", "reopened"]), 1))).label("escalated"),
+        func.avg(Complaint.validity_score).label("avg_score"),
+    ).first()
+    total         = row.total or 0
+    resolved      = row.resolved or 0
+    bot_resolved  = row.bot_resolved or 0
+    human_resolved= row.human_resolved or 0
+    escalated     = row.escalated or 0
+    avg_score     = row.avg_score or 0
+
     avg_feedback = db.query(func.avg(Feedback.rating)).scalar() or 0
 
     # Deflection rate: proportion resolved by Tier-1 Bot
     bot_deflection_rate = round((bot_resolved / max(total, 1)) * 100, 1)
 
-    # User counts
-    total_users = db.query(func.count(User.user_id)).scalar() or 0
-    total_customers = db.query(func.count(User.user_id)).filter(User.role == "customer").scalar() or 0
-    total_admins = db.query(func.count(User.user_id)).filter(User.role.in_(["admin", "officer", "staff"])).scalar() or 0
+    # Single-pass user counts
+    user_row = db.query(
+        func.count(User.user_id).label("total"),
+        func.count(sa_case((User.role == "customer", 1))).label("customers"),
+        func.count(sa_case((User.role.in_(["admin", "officer", "staff"]), 1))).label("admins"),
+    ).first()
+    total_users     = user_row.total or 0
+    total_customers = user_row.customers or 0
+    total_admins    = user_row.admins or 0
 
     return {
         "total_complaints": total,
@@ -2657,7 +2674,7 @@ def nova_assistant_chat(payload: NovaChatInput, db: Session = Depends(get_db)):
     q = payload.query.strip().lower()
 
     # 1. Direct Ticket Token lookup
-    match = re.search(r'(grv-d{4}-d{5})', q)
+    match = re.search(r'(grv-\d{4}-\d{5})', q)
     if match:
         token_found = match.group(1).upper()
         comp = db.query(Complaint).filter(Complaint.token == token_found).first()

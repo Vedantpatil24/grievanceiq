@@ -572,7 +572,7 @@ export default function AdminDashboard() {
           <div className="card card-hoverable" style={{ padding: '16px', margin: 0, borderLeft: '4px solid #9333ea' }}>
             <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{lang === 'hi' ? 'औसत संतुष्टि रेटिंग' : 'Avg Redressal Rating'}</div>
             <div style={{ fontSize: '1.6rem', fontWeight: '800', color: '#9333ea', marginTop: '4px' }}>
-              {kpis.avg_feedback_rating} / 5
+              {kpis.avg_feedback_rating > 0 ? `${kpis.avg_feedback_rating} / 5` : 'No Reviews Yet'}
             </div>
             <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>
               {lang === 'en' ? 'Direct Customer Reviews' : (lang === 'hi' ? 'प्रत्यक्ष उपभोक्ता समीक्षाएं' : (lang === 'mr' ? 'थेट ग्राहक पुनरावलोकने' : (lang === 'ta' ? 'நேரடி வாடிக்கையாளர் மதிப்புரைகள்' : 'ગ્રાહક સમીક્ષાઓ')))}
