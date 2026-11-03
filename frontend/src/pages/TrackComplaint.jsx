@@ -12,6 +12,7 @@ export default function TrackComplaint() {
   const [searchParams] = useSearchParams();
   const [tokenInput, setTokenInput] = useState(searchParams.get('token') || '');
   const [loading, setLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [complaint, setComplaint] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
 
@@ -188,7 +189,29 @@ export default function TrackComplaint() {
           <div className="card" style={{ borderTop: '4px solid #2563eb' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '15px' }}>
               <div>
-                <span className="badge badge-blue">{complaint.token}</span>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                  <span className="badge badge-blue" style={{ fontFamily: 'monospace' }}>{complaint.token}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(complaint.token);
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 2000);
+                    }}
+                    style={{
+                      background: copied ? '#16a34a' : '#e2e8f0',
+                      color: copied ? 'white' : '#475569',
+                      border: 'none',
+                      borderRadius: '4px',
+                      padding: '2px 8px',
+                      fontSize: '0.72rem',
+                      fontWeight: '600',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {copied ? '✓ Copied' : '📋 Copy'}
+                  </button>
+                </div>
                 <h2 style={{ fontSize: '1.4rem', fontWeight: '700', marginTop: '8px', color: '#0f172a' }}>
                   {complaint.service_type}
                 </h2>

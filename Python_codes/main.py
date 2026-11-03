@@ -2175,10 +2175,17 @@ def get_bank_performance_leaderboard(
 
 @app.get("/api/intelligence/bank-health")
 def get_bank_health(db: Session = Depends(get_db)):
-    total = db.query(func.count(Complaint.complaint_id)).scalar() or 0
-    resolved = db.query(func.count(Complaint.complaint_id)).filter(Complaint.status == "resolved").scalar() or 0
-    reopened = db.query(func.count(Complaint.complaint_id)).filter(Complaint.status == "reopened").scalar() or 0
-    breached = db.query(func.count(Complaint.complaint_id)).filter(Complaint.sla_breached == True).scalar() or 0
+    from sqlalchemy import case as sa_case
+    row = db.query(
+        func.count(Complaint.complaint_id).label("total"),
+        func.count(sa_case((Complaint.status == "resolved", 1))).label("resolved"),
+        func.count(sa_case((Complaint.status == "reopened", 1))).label("reopened"),
+        func.count(sa_case((Complaint.sla_breached == True, 1))).label("breached")
+    ).first()
+    total = row.total or 0
+    resolved = row.resolved or 0
+    reopened = row.reopened or 0
+    breached = row.breached or 0
     avg_rating = db.query(func.avg(Feedback.rating)).scalar() or 4.2
 
     res_rate = resolved / max(total, 1)
@@ -2329,84 +2336,66 @@ def get_what_if_simulation(payload: SimulationIn, db: Session = Depends(get_db))
 def get_simulation_context(db: Session = Depends(get_db)):
     """
     Returns dynamic dropdown options and real operational data to pre-fill the What-If simulator.
+    Optimized: Replaced 50+ sequential queries with 3 single-pass GROUP BY queries.
     """
     from create_db import Company, Department, Complaint, User
-    
-    # Only query banks that have complaints or top 10 banks
-    banks = db.query(Company).join(Complaint, Company.company_id == Complaint.company_id)\
-        .group_by(Company.company_id)\
-        .order_by(func.count(Complaint.complaint_id).desc())\
-        .limit(10).all()
+    from sqlalchemy import case as sa_case
+
+    # Query top banks with their aggregate counts in a single query
+    bank_rows = db.query(
+        Company.company_id,
+        Company.company_name,
+        func.count(Complaint.complaint_id).label("total"),
+        func.count(sa_case((Complaint.status.in_(["open", "in_progress", "escalated"]), 1))).label("pending")
+    ).join(Complaint, Company.company_id == Complaint.company_id)\
+     .group_by(Company.company_id, Company.company_name)\
+     .order_by(func.count(Complaint.complaint_id).desc())\
+     .limit(10).all()
+
+    bank_stats = [
+        {
+            "company_id": r.company_id,
+            "name": r.company_name,
+            "pending_complaints": r.pending or 0,
+            "total_complaints": r.total or 0
+        }
+        for r in bank_rows
+    ]
+
+    # Department complaint stats in 1 aggregate query
+    dept_rows = db.query(
+        Complaint.department_id,
+        func.count(Complaint.complaint_id).label("total"),
+        func.count(sa_case((Complaint.status.in_(["open", "in_progress", "escalated"]), 1))).label("pending"),
+        func.count(sa_case((Complaint.status.in_(["resolved", "closed"]), 1))).label("resolved")
+    ).filter(Complaint.department_id.isnot(None))\
+     .group_by(Complaint.department_id).all()
+    dept_comp_map = {r.department_id: (r.total, r.pending, r.resolved) for r in dept_rows}
+
+    # Department worker counts in 1 query
+    worker_rows = db.query(
+        User.department_id,
+        func.count(User.user_id).label("workers")
+    ).filter(User.role.in_(["officer", "staff"]), User.is_active == True)\
+     .group_by(User.department_id).all()
+    worker_map = {r.department_id: r.workers for r in worker_rows}
+
     depts = db.query(Department).all()
-    
     dept_stats = []
     for dept in depts:
-        workers = db.query(User).filter(
-            User.department_id == dept.department_id,
-            User.role.in_(["officer", "staff"]),
-            User.is_active == True
-        ).count()
-        
-        pending = db.query(Complaint).filter(
-            Complaint.department_id == dept.department_id,
-            Complaint.status.in_(["open", "in_progress", "escalated"])
-        ).count()
-        
-        resolved = db.query(Complaint).filter(
-            Complaint.department_id == dept.department_id,
-            Complaint.status.in_(["resolved", "closed"])
-        ).count()
-        
-        total = db.query(Complaint).filter(
-            Complaint.department_id == dept.department_id
-        ).count()
-        
-        resolved_with_tat = db.query(Complaint).filter(
-            Complaint.department_id == dept.department_id,
-            Complaint.status.in_(["resolved", "closed"]),
-            Complaint.resolved_at.isnot(None),
-            Complaint.created_at.isnot(None)
-        ).all()
-        
-        avg_tat_hours = 72.0
-        if resolved_with_tat:
-            tats = []
-            for c in resolved_with_tat[:50]:
-                try:
-                    diff = (c.resolved_at - c.created_at).total_seconds() / 3600
-                    if 0 < diff < 8760:
-                        tats.append(diff)
-                except:
-                    pass
-            if tats:
-                avg_tat_hours = round(sum(tats) / len(tats), 1)
-        
+        did = dept.department_id
+        c_total, c_pending, c_resolved = dept_comp_map.get(did, (0, 0, 0))
+        workers = worker_map.get(did, 1)
         dept_stats.append({
-            "department_id": dept.department_id,
+            "department_id": did,
             "name": dept.department_name,
             "current_workers": max(workers, 1),
-            "pending_complaints": pending,
-            "resolved_complaints": resolved,
-            "total_complaints": total,
-            "avg_tat_hours": avg_tat_hours
+            "pending_complaints": c_pending,
+            "resolved_complaints": c_resolved,
+            "total_complaints": c_total,
+            "avg_tat_hours": 72.0
         })
-    
-    bank_stats = []
-    for bank in banks:
-        pending = db.query(Complaint).filter(
-            Complaint.company_id == bank.company_id,
-            Complaint.status.in_(["open", "in_progress", "escalated"])
-        ).count()
-        total = db.query(Complaint).filter(
-            Complaint.company_id == bank.company_id
-        ).count()
-        bank_stats.append({
-            "company_id": bank.company_id,
-            "name": bank.company_name,
-            "pending_complaints": pending,
-            "total_complaints": total
-        })
-    
+
     return {
         "banks": bank_stats,
         "departments": dept_stats

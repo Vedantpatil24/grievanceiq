@@ -153,6 +153,7 @@ export default function SubmitComplaint() {
   const navigate = useNavigate();
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
   const [missingItems, setMissingItems] = useState([]);
 
@@ -726,9 +727,35 @@ export default function SubmitComplaint() {
           <div className="card" style={{ borderLeft: '6px solid var(--accent)', padding: '28px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '15px' }}>
               <div>
-                <span className="badge badge-blue" style={{ fontSize: '0.85rem' }}>
-                  Statutory Tracking Token: {submittedData.token}
-                </span>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                  <span className="badge badge-blue" style={{ fontSize: '0.85rem', fontFamily: 'monospace' }}>
+                    Statutory Tracking Token: {submittedData.token}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(submittedData.token);
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 2000);
+                    }}
+                    style={{
+                      background: copied ? '#16a34a' : '#1e40af',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '6px',
+                      padding: '4px 10px',
+                      fontSize: '0.75rem',
+                      fontWeight: '700',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      transition: 'background 0.2s'
+                    }}
+                  >
+                    {copied ? '✓ Copied!' : '📋 Copy Token'}
+                  </button>
+                </div>
                 <h2 style={{ fontSize: '1.5rem', fontWeight: '800', marginTop: '10px', color: '#0f2942' }}>
                   Grievance Formally Registered
                 </h2>
@@ -829,7 +856,7 @@ export default function SubmitComplaint() {
                       <FileCheck size={16} /> Official Remediation Advice &amp; Proof
                     </div>
                     <a 
-                      href={`http://localhost:8000/uploads/${submittedData.bot_assessment.proof_file}`}
+                      href={`/uploads/${submittedData.bot_assessment.proof_file}`}
                       target="_blank"
                       rel="noreferrer"
                       className="btn btn-outline"

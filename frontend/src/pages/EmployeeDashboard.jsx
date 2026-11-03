@@ -514,7 +514,7 @@ export default function EmployeeDashboard() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                         {selectedComplaint.proof_file_path ? (
                           <>
-                            <a href={`http://localhost:8000/api/complaints/${selectedComplaint.token}/document`} target="_blank" rel="noreferrer"
+                            <a href={`/api/complaints/${selectedComplaint.token}/document`} target="_blank" rel="noreferrer"
                               style={{ fontSize: '0.8rem', color: '#1e40af', textDecoration: 'underline', display: 'flex', alignItems: 'center', gap: '4px' }}>
                               <FileText size={14} /> {t('officer_view_doc')}
                             </a>

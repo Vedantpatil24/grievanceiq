@@ -2152,7 +2152,7 @@ export default function AdminDashboard() {
                         File on record: <code>{selectedComplaint.proof_file_path.split('\\').pop().split('/').pop()}</code>
                       </div>
                       <a 
-                        href={`http://localhost:8000/api/complaints/${selectedComplaint.token}/document`}
+                        href={`/api/complaints/${selectedComplaint.token}/document`}
                         target="_blank" 
                         rel="noreferrer"
                         className="btn btn-outline"
