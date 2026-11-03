@@ -158,33 +158,67 @@ export default function SubmitComplaint() {
   const [copied, setCopied] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = React.useRef(null);
+  const baseTextRef = React.useRef('');
 
   const toggleVoiceDictation = () => {
     if (isListening) {
-      if (recognitionRef.current) recognitionRef.current.stop();
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch (e) {}
+      }
       setIsListening(false);
       return;
     }
+
     const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRec) {
       alert("Voice dictation is supported in modern browsers like Google Chrome and Microsoft Edge.");
       return;
     }
+
     try {
       const rec = new SpeechRec();
       rec.continuous = true;
-      rec.interimResults = false;
+      rec.interimResults = true;
+      rec.maxAlternatives = 1;
       rec.lang = lang === 'hi' ? 'hi-IN' : (lang === 'mr' ? 'mr-IN' : 'en-IN');
+
+      // Preserve existing text so speech appends smoothly without repeating
+      baseTextRef.current = description || '';
+
       rec.onresult = (e) => {
-        const transcript = Array.from(e.results).map(r => r[0].transcript).join(' ');
-        setDescription(prev => (prev ? prev + ' ' + transcript : transcript));
+        let sessionFinal = '';
+        let sessionInterim = '';
+
+        for (let i = 0; i < e.results.length; ++i) {
+          const res = e.results[i];
+          if (res.isFinal) {
+            sessionFinal += res[0].transcript + ' ';
+          } else {
+            sessionInterim += res[0].transcript;
+          }
+        }
+
+        const spoken = (sessionFinal + sessionInterim).trim();
+        const prefix = baseTextRef.current ? baseTextRef.current.trim() + ' ' : '';
+        setDescription(prefix + spoken);
       };
-      rec.onerror = () => setIsListening(false);
-      rec.onend = () => setIsListening(false);
+
+      rec.onerror = (event) => {
+        console.warn('Speech recognition status:', event.error);
+        if (event.error !== 'no-speech') {
+          setIsListening(false);
+        }
+      };
+
+      rec.onend = () => {
+        setIsListening(false);
+      };
+
       recognitionRef.current = rec;
       rec.start();
       setIsListening(true);
     } catch (err) {
+      console.error('Error starting speech recognition:', err);
       setIsListening(false);
     }
   };
