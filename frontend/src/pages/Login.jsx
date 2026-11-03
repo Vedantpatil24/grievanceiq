@@ -342,26 +342,7 @@ export default function Login() {
           )}
         </div>
 
-        {/* Quick-fill demo buttons */}
-        <div style={{ display: 'flex', gap: '6px', marginBottom: '14px', flexWrap: 'wrap' }}>
-          {loginRole === 'customer' ? (
-            <button type="button" onClick={() => { setEmail('user@test.com'); setPassword('user123'); setCustomerMode('signin'); setErrorMsg(null); }}
-              style={{ fontSize: '0.72rem', padding: '4px 10px', border: '1px solid #bfdbfe', borderRadius: '20px', background: '#eff6ff', color: '#1d4ed8', cursor: 'pointer', fontWeight: '600' }}>
-              🧪 Demo Customer
-            </button>
-          ) : (
-            <>
-              <button type="button" onClick={() => { setEmail('admin@grievanceiq.in'); setPassword('admin123'); setErrorMsg(null); }}
-                style={{ fontSize: '0.72rem', padding: '4px 10px', border: '1px solid #bfdbfe', borderRadius: '20px', background: '#eff6ff', color: '#1d4ed8', cursor: 'pointer', fontWeight: '600' }}>
-                🔑 Demo Admin
-              </button>
-              <button type="button" onClick={() => { setEmail('officer_retail'); setPassword('emp123'); setErrorMsg(null); }}
-                style={{ fontSize: '0.72rem', padding: '4px 10px', border: '1px solid #d1fae5', borderRadius: '20px', background: '#ecfdf5', color: '#065f46', cursor: 'pointer', fontWeight: '600' }}>
-                👮 Demo Officer
-              </button>
-            </>
-          )}
-        </div>
+
 
         {/* Customer mode tabs */}
         {loginRole === 'customer' && (

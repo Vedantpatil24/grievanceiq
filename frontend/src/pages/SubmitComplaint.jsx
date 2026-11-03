@@ -6,6 +6,8 @@ import {
   ShieldAlert, CheckCircle, AlertTriangle, FileText, 
   ArrowRight, Upload, Building2, HelpCircle, CreditCard, 
   Smartphone, IndianRupee, Landmark, Clock, FileCheck
+, Mic
+, Download
 } from 'lucide-react';
 
 const SERVICE_CONFIGS = {

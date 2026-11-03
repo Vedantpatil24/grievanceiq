@@ -5,6 +5,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { 
   Search, Clock, ShieldCheck, UserCheck, MessageSquare, 
   Send, RefreshCw, Star, AlertCircle, FileText, CheckCircle2, Upload, AlertTriangle 
+, Download
 } from 'lucide-react';
 
 export default function TrackComplaint() {

@@ -123,7 +123,7 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         (User.username == login_ident) | (User.email == login_ident)
     ).first()
     if not user or not verify_password(form_data.password, user.hashed_password):
-        raise HTTPException(status_code=400, detail="Invalid email/username or password")
+        raise HTTPException(status_code=401, detail="Invalid email/username or password")
     
     token = create_access_token(data={"sub": user.username, "role": user.role, "user_id": user.user_id})
     return {
@@ -1680,6 +1680,7 @@ def get_analytics_overview(db: Session = Depends(get_db)):
     return {
         "total_complaints": total,
         "resolved_complaints": resolved,
+        "resolved_count": resolved,  # alias for compatibility
         "escalated_active": escalated,
         "bot_resolved_count": bot_resolved,
         "human_resolved_count": human_resolved,
