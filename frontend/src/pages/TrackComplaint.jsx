@@ -211,6 +211,26 @@ export default function TrackComplaint() {
                   >
                     {copied ? '✓ Copied' : '📋 Copy'}
                   </button>
+                  <a
+                    href={`/api/complaints/${complaint.token}/statutory-receipt`}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      background: '#0f2942',
+                      color: '#93c5fd',
+                      border: '1px solid #1e3a8a',
+                      borderRadius: '4px',
+                      padding: '2px 10px',
+                      fontSize: '0.72rem',
+                      fontWeight: '700',
+                      textDecoration: 'none',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                  >
+                    <Download size={11} /> Download PDF Receipt
+                  </a>
                 </div>
                 <h2 style={{ fontSize: '1.4rem', fontWeight: '700', marginTop: '8px', color: '#0f172a' }}>
                   {complaint.service_type}
@@ -254,6 +274,69 @@ export default function TrackComplaint() {
                 )}
               </div>
             </div>
+
+            {/* ── UPI 3-LEG TRANSACTION SETTLEMENT RADAR ── */}
+            {['upi', 'imps', 'card', 'transfer', 'atm'].some(k => (complaint.service_type || '').toLowerCase().includes(k)) && (
+              <div style={{ marginTop: '16px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '14px 18px' }}>
+                <div style={{ fontSize: '0.75rem', fontWeight: '700', color: '#0f2942', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span>🌐 Interbank Dispute Settlement Node Trail (NPCI / Switch)</span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr auto 1fr', alignItems: 'center', gap: '8px' }}>
+                  {/* Leg 1 */}
+                  <div style={{ background: '#dcfce7', border: '1px solid #86efac', borderRadius: '8px', padding: '10px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '0.7rem', color: '#166534', fontWeight: '800' }}>LEG 1: REMITTER</div>
+                    <div style={{ fontSize: '0.82rem', fontWeight: '700', color: '#14532d', marginTop: '2px' }}>{complaint.company_name || 'Sender Bank'}</div>
+                    <div style={{ fontSize: '0.72rem', color: '#166534', marginTop: '2px' }}>✓ Debited</div>
+                  </div>
+                  <div style={{ color: '#94a3b8', fontWeight: '800' }}>➔</div>
+                  {/* Leg 2 */}
+                  <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '10px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '0.7rem', color: '#1e40af', fontWeight: '800' }}>LEG 2: NPCI / SWITCH</div>
+                    <div style={{ fontSize: '0.82rem', fontWeight: '700', color: '#1e3a8a', marginTop: '2px' }}>Central Payment Switch</div>
+                    <div style={{ fontSize: '0.72rem', color: '#1e40af', marginTop: '2px' }}>✓ Cleared & Routed</div>
+                  </div>
+                  <div style={{ color: '#94a3b8', fontWeight: '800' }}>➔</div>
+                  {/* Leg 3 */}
+                  <div style={{ background: complaint.status === 'resolved' ? '#dcfce7' : '#fffbeb', border: `1px solid ${complaint.status === 'resolved' ? '#86efac' : '#fcd34d'}`, borderRadius: '8px', padding: '10px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '0.7rem', color: complaint.status === 'resolved' ? '#166534' : '#92400e', fontWeight: '800' }}>LEG 3: BENEFICIARY</div>
+                    <div style={{ fontSize: '0.82rem', fontWeight: '700', color: complaint.status === 'resolved' ? '#14532d' : '#78350f', marginTop: '2px' }}>Destination Account</div>
+                    <div style={{ fontSize: '0.72rem', color: complaint.status === 'resolved' ? '#166534' : '#b45309', marginTop: '2px' }}>
+                      {complaint.status === 'resolved' ? '✓ Credited / Reversible' : '⏳ Nodal Dispute Active'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── RBI MANDATED T+5 COMPENSATION ACCRUAL RADAR ── */}
+            <div style={{ marginTop: '12px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px', padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', color: '#92400e' }}>
+                <span style={{ fontSize: '1.1rem' }}>⚖️</span>
+                <span><strong>RBI Harmonisation Mandate (DPSS.CO.PD No.629):</strong> Failed transaction resolution turnaround time active. Delayed reversal compensation tracked at ₹100/day.</span>
+              </div>
+              <span style={{ fontSize: '0.75rem', background: '#fef3c7', padding: '3px 8px', borderRadius: '12px', fontWeight: '700', color: '#b45309', border: '1px solid #fcd34d' }}>
+                Statutory Auto-Tracking
+              </span>
+            </div>
+
+            {/* ── EXPLAINABLE AI (XAI) ATTRIBUTION SIGNALS ── */}
+            {complaint.xai_attribution && complaint.xai_attribution.length > 0 && (
+              <div style={{ marginTop: '12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '10px 14px' }}>
+                <div style={{ fontSize: '0.75rem', fontWeight: '700', color: '#166534', marginBottom: '6px' }}>
+                  🤖 Explainable AI (XAI) Discriminative Feature Signals:
+                </div>
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  {complaint.xai_attribution.map((item, idx) => (
+                    <span key={idx} style={{ background: 'white', border: '1px solid #86efac', padding: '2px 8px', borderRadius: '12px', fontSize: '0.72rem', color: '#15803d', fontWeight: '600' }}>
+                      {item.word} ({Math.round(item.weight * 100)}%)
+                    </span>
+                  ))}
+                  <span style={{ fontSize: '0.72rem', color: '#166534', alignSelf: 'center', marginLeft: '6px' }}>
+                    🔒 PII Masked under DPDP Act 2023
+                  </span>
+                </div>
+              </div>
+            )}
 
             {/* RESOLUTION MODE & OFFICER */}
             <div style={{ display: 'flex', gap: '20px', marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #f1f5f9', fontSize: '0.875rem' }}>

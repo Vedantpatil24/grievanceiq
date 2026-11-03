@@ -1,0 +1,48 @@
+{
+  "accuracy": 0.8349,
+  "report": {
+    "Bank Accounts and Services": {
+      "precision": 0.8587479935794543,
+      "recall": 0.8916666666666667,
+      "f1-score": 0.8748977923139821,
+      "support": 600.0
+    },
+    "Credit Card Services": {
+      "precision": 0.8210702341137124,
+      "recall": 0.8183333333333334,
+      "f1-score": 0.8196994991652755,
+      "support": 600.0
+    },
+    "Credit Reporting": {
+      "precision": 0.8316666666666667,
+      "recall": 0.8330550918196995,
+      "f1-score": 0.8323603002502084,
+      "support": 599.0
+    },
+    "Debt Collection": {
+      "precision": 0.8,
+      "recall": 0.7813021702838063,
+      "f1-score": 0.7905405405405405,
+      "support": 599.0
+    },
+    "Loans": {
+      "precision": 0.8614864864864865,
+      "recall": 0.85,
+      "f1-score": 0.8557046979865771,
+      "support": 600.0
+    },
+    "accuracy": 0.8348899266177452,
+    "macro avg": {
+      "precision": 0.8345942761692641,
+      "recall": 0.8348714524207012,
+      "f1-score": 0.8346405660513166,
+      "support": 2998.0
+    },
+    "weighted avg": {
+      "precision": 0.8346067918082472,
+      "recall": 0.8348899266177452,
+      "f1-score": 0.8346560364620278,
+      "support": 2998.0
+    }
+  }
+}

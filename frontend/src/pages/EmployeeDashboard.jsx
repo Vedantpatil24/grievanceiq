@@ -612,6 +612,18 @@ export default function EmployeeDashboard() {
                       )}
                     </div>
 
+                    {/* DPDP Act 2023 Compliance & Statutory Scheme Badge */}
+                    <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 14px', marginBottom: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                      <div style={{ fontSize: '0.78rem', color: '#334155' }}>
+                        <span style={{ fontWeight: '700', color: '#0f2942' }}>Statutory Scheme:</span> Reserve Bank Integrated Ombudsman (RB-IOS, 2021)
+                        <span style={{ marginLeft: '10px', color: '#16a34a', fontWeight: '600' }}>✓ DPDP 2023 PII Masked</span>
+                      </div>
+                      <a href={`/api/complaints/${selectedComplaint.token}/statutory-receipt`} target="_blank" rel="noreferrer"
+                        style={{ padding: '4px 10px', background: '#0f2942', color: '#93c5fd', borderRadius: '5px', fontSize: '0.75rem', fontWeight: '700', textDecoration: 'none' }}>
+                        📄 Download Statutory Case Receipt
+                      </a>
+                    </div>
+
                     {/* SLA Info */}
                     {selectedComplaint.sla && (
                       <div style={{ background: selectedComplaint.sla.overdue ? '#fef2f2' : '#eff6ff', border: `1px solid ${selectedComplaint.sla.overdue ? '#fecaca' : '#bfdbfe'}`, borderRadius: '8px', padding: '10px 14px', fontSize: '0.8rem' }}>

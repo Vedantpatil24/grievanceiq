@@ -154,6 +154,38 @@ export default function SubmitComplaint() {
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = React.useRef(null);
+
+  const toggleVoiceDictation = () => {
+    if (isListening) {
+      if (recognitionRef.current) recognitionRef.current.stop();
+      setIsListening(false);
+      return;
+    }
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRec) {
+      alert("Voice dictation is supported in modern browsers like Google Chrome and Microsoft Edge.");
+      return;
+    }
+    try {
+      const rec = new SpeechRec();
+      rec.continuous = true;
+      rec.interimResults = false;
+      rec.lang = lang === 'hi' ? 'hi-IN' : (lang === 'mr' ? 'mr-IN' : 'en-IN');
+      rec.onresult = (e) => {
+        const transcript = Array.from(e.results).map(r => r[0].transcript).join(' ');
+        setDescription(prev => (prev ? prev + ' ' + transcript : transcript));
+      };
+      rec.onerror = () => setIsListening(false);
+      rec.onend = () => setIsListening(false);
+      recognitionRef.current = rec;
+      rec.start();
+      setIsListening(true);
+    } catch (err) {
+      setIsListening(false);
+    }
+  };
   const [errorMsg, setErrorMsg] = useState(null);
   const [missingItems, setMissingItems] = useState([]);
 
@@ -549,13 +581,37 @@ export default function SubmitComplaint() {
 
             {/* GRIEVANCE NARRATIVE & MULTILINGUAL INPUT */}
             <div className="form-group">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px', flexWrap: 'wrap', gap: '8px' }}>
                 <label className="form-label" style={{ marginBottom: 0 }}>
                   {t('narrative_label')}
                 </label>
-                <span style={{ fontSize: '0.8rem', color: '#2563eb', fontWeight: '600' }}>
-                  {t('narrative_sub')}
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <button
+                    type="button"
+                    onClick={toggleVoiceDictation}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '4px 12px',
+                      borderRadius: '20px',
+                      border: isListening ? '1.5px solid #ef4444' : '1px solid #bfdbfe',
+                      background: isListening ? '#fef2f2' : '#eff6ff',
+                      color: isListening ? '#dc2626' : '#1d4ed8',
+                      cursor: 'pointer',
+                      fontSize: '0.78rem',
+                      fontWeight: '700',
+                      transition: 'all 0.2s'
+                    }}
+                    title="Speak in Hindi, Marathi, or English"
+                  >
+                    <Mic size={14} />
+                    {isListening ? '🔴 Listening... (Speak now)' : '🎙️ Speak Grievance (Voice-to-Text)'}
+                  </button>
+                  <span style={{ fontSize: '0.8rem', color: '#2563eb', fontWeight: '600' }}>
+                    {t('narrative_sub')}
+                  </span>
+                </div>
               </div>
               <textarea 
                 rows="4" 
@@ -755,6 +811,26 @@ export default function SubmitComplaint() {
                   >
                     {copied ? '✓ Copied!' : '📋 Copy Token'}
                   </button>
+                  <a
+                    href={`/api/complaints/${submittedData.token}/statutory-receipt`}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      background: '#0f2942',
+                      color: '#93c5fd',
+                      border: '1px solid #1e3a8a',
+                      borderRadius: '6px',
+                      padding: '4px 12px',
+                      fontSize: '0.75rem',
+                      fontWeight: '700',
+                      textDecoration: 'none',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px'
+                    }}
+                  >
+                    <Download size={13} /> Statutory PDF Receipt (QR Verified)
+                  </a>
                 </div>
                 <h2 style={{ fontSize: '1.5rem', fontWeight: '800', marginTop: '10px', color: '#0f2942' }}>
                   Grievance Formally Registered
