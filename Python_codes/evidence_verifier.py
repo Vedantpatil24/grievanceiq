@@ -183,13 +183,21 @@ def _compute_domain_scores(text_sample: str) -> dict:
     financial_score = max(cosine_similarity(vec, v) for v in FINANCIAL_VECTORS)
     non_financial_score = max(cosine_similarity(vec, v) for v in NON_FINANCIAL_VECTORS)
 
-    # Classification thresholds (calibrated by testing)
-    if non_financial_score >= financial_score and non_financial_score >= 0.20:
+    # Classification thresholds (calibrated with explicit banking keyword guard)
+    text_lower = text_sample.lower()
+    has_explicit_banking = any(k in text_lower for k in [
+        "bank", "loan", "account", "statement", "debit", "credit", "noc", "cibil",
+        "card", "atm", "upi", "imps", "rbi", "transaction", "payment", "interest",
+        "emi", "closure", "foreclosure", "overdue", "harassment", "police", "fir"
+    ])
+    if has_explicit_banking:
+        financial_score = max(financial_score, 0.45)
+
+    if not has_explicit_banking and non_financial_score >= financial_score and non_financial_score >= 0.28:
         classification = "NON_FINANCIAL"
-    elif financial_score >= 0.25:
+    elif financial_score >= 0.22 or has_explicit_banking:
         classification = "FINANCIAL"
     else:
-        # Both scores are low — unreadable or truly generic
         classification = "UNCLASSIFIABLE"
 
     return {
