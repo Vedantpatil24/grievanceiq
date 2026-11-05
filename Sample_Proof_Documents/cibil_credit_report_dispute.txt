@@ -1,0 +1,7 @@
+=== TRANSUNION CIBIL DISPUTE AUDIT REPORT ===
+
+Control Number: CIR-2026-99281
+Disputed Overdue Entry: Default reported on closed credit line
+True Status: Closed on 12/03/2025. Bank failed to report updated 0 DPD status to bureau.
+
+[Certified Digital Audit Record - GrievanceIQ Compliance]

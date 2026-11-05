@@ -1,0 +1,9 @@
+=== STATE BANK OF INDIA - RECOVERY AGENT MISCONDUCT LOG ===
+Bank Institution  : State Bank of India
+Reference ID      : AUDIT-HARASS-2026-9921
+Incident Date     : 2026-11-04
+Customer Name     : Ananya Sengupta
+Call Details      : 18 aggressive calls placed outside permissible RBI lending hours
+Violations Logged : Unlawful threats and abusive harassment by recovery agency staff
+Audit Outcome     : Escalated to Grievance Redressal Officer
+Verified Proof    : GrievanceIQ Compliance Registry

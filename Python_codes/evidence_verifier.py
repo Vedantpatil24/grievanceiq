@@ -99,7 +99,7 @@ CATEGORY_REQUIRED_KEYWORDS = {
     },
     "Staff Behavior & Recovery Harassment": {
         "primary": ["complaint", "harassment", "recovery", "agent", "misconduct", "staff"],
-        "secondary": ["threat", "calling", "abuse", "behavior", "bank", "loan"],
+        "secondary": ["threat", "calling", "calls", "call", "abuse", "behavior", "bank", "loan", "lenders", "rbi"],
         "min_primary": 1, "min_secondary": 1
     },
 }

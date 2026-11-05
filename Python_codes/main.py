@@ -738,8 +738,20 @@ async def submit_complaint(
         upload_dir=UPLOAD_DIR
     )
 
-    # 8. Save Complaint in BOT_PROPOSED state
+    # 8. Human Escalation vs Automated Nova-AI Triage Filter
+    desc_low = description.lower()
+    requires_human_officer = (
+        service_type in ["Staff Behavior & Recovery Harassment", "Credit Bureau / CIBIL Rectification", "Loan Closure, NOC & Document Dispatch"]
+        or any(w in desc_low for w in ["harassment", "abusive", "threaten", "extortion", "cyber crime", "police fir", "forged cheque", "legal notice", "fir copy"])
+        or (amount is not None and amount >= 50000 and any(w in desc_low for w in ["fraud", "unauthorized", "stolen", "cyber"]))
+    )
+
     now = datetime.utcnow()
+    init_status = "escalated" if requires_human_officer else "bot_processing"
+    init_res_mode = "HUMAN" if requires_human_officer else "BOT"
+    init_esc_level = 1 if requires_human_officer else 0
+    init_reason = "Automated Regulatory Triage: High-severity human-intervention grievance routed directly to Department Officer." if requires_human_officer else None
+
     new_complaint = Complaint(
         token=token,
         customer_id=customer_id,
@@ -756,20 +768,32 @@ async def submit_complaint(
         proof_file_path=saved_file_path,
         custom_fields=custom_fields,
         priority=ml_res["priority"],
-        status="bot_processing",
+        status=init_status,
         validity_score=validity_res["score"],
         validity_status="valid",
         evidence_status=evidence_result["display_status"],
-        resolution_mode="BOT",
+        resolution_mode=init_res_mode,
         matched_article_id=bot_res["article_id"],
         bot_confidence=bot_res["bot_confidence"],
-        escalation_level=0,
+        escalation_level=init_esc_level,
+        escalation_reason=init_reason,
         can_reopen_until=None,
         created_at=now,
         updated_at=now
     )
+
     db.add(new_complaint)
     db.flush()
+
+    assigned_officer = None
+    if requires_human_officer:
+        assigned_officer = assign_optimal_officer(
+            db=db,
+            complaint=new_complaint,
+            reason="Automated Regulatory Triage upon Submission"
+        )
+        new_complaint.current_assigned_officer_id = assigned_officer.user_id if assigned_officer else None
+        new_complaint.sla_deadline = calculate_deadline(now, ml_res["priority"])
 
     # Record similar complaints in database
     for sim in similar_cases:
@@ -792,14 +816,24 @@ async def submit_complaint(
     db.add(pred_log)
 
     # Log Status History
-    status_hist = StatusHistory(
-        complaint_id=new_complaint.complaint_id,
-        old_status=None,
-        new_status="bot_processing",
-        changed_by="Nova-AI Sentinel",
-        changed_at=now,
-        comment=f"Complaint validated (Score {validity_res['score']}/100) and assigned to Nova-AI Sentinel (Automated Settlement Desk). Inter-bank reconciliation active (Target SLA < 30s)."
-    )
+    if requires_human_officer and assigned_officer:
+        status_hist = StatusHistory(
+            complaint_id=new_complaint.complaint_id,
+            old_status=None,
+            new_status="escalated",
+            changed_by="Automated Regulatory Triage",
+            changed_at=now,
+            comment=f"Sensitive / High-Severity grievance. Bypassed AI bot and directly assigned to Grievance Redressal Officer {assigned_officer.full_name} ({ml_res['department_name']})."
+        )
+    else:
+        status_hist = StatusHistory(
+            complaint_id=new_complaint.complaint_id,
+            old_status=None,
+            new_status="bot_processing",
+            changed_by="Nova-AI Sentinel",
+            changed_at=now,
+            comment=f"Complaint validated (Score {validity_res['score']}/100) and assigned to Nova-AI Sentinel (Automated Settlement Desk). Inter-bank reconciliation active (Target SLA < 30s)."
+        )
     db.add(status_hist)
 
     # Log Audit Event
@@ -813,23 +847,43 @@ async def submit_complaint(
     )
 
     # Create Initial Notification
-    create_notification(
-        db=db,
-        complaint_id=new_complaint.complaint_id,
-        recipient_type="customer",
-        notification_type="BOT_ASSIGNED",
-        title="Grievance Assigned to Nova-AI Sentinel",
-        body=f"Your complaint {token} has been assigned to Nova-AI Sentinel (Automated Settlement Desk). System is reconciling banking switch ledgers (SLA < 30s)."
-    )
+    if requires_human_officer and assigned_officer:
+        create_notification(
+            db=db,
+            complaint_id=new_complaint.complaint_id,
+            recipient_type="customer",
+            notification_type="OFFICER_ASSIGNED",
+            title=f"Directly Assigned to Officer {assigned_officer.full_name}",
+            body=f"Your complaint {token} requires specialized regulatory review and has been directly assigned to {assigned_officer.full_name} ({ml_res['department_name']})."
+        )
+        create_notification(
+            db=db,
+            complaint_id=new_complaint.complaint_id,
+            recipient_type="staff",
+            recipient_id=assigned_officer.user_id,
+            notification_type="NEW_TICKET_ASSIGNED",
+            title=f"New High-Severity Ticket Assigned: {token}",
+            body=f"Priority: {ml_res['priority']}. Service: {service_type}. Please investigate."
+        )
+    else:
+        create_notification(
+            db=db,
+            complaint_id=new_complaint.complaint_id,
+            recipient_type="customer",
+            notification_type="BOT_ASSIGNED",
+            title="Grievance Assigned to Nova-AI Sentinel",
+            body=f"Your complaint {token} has been assigned to Nova-AI Sentinel (Automated Settlement Desk). System is reconciling banking switch ledgers (SLA < 30s)."
+        )
 
     db.commit()
 
-    # Trigger background 20-second autonomous resolution (< 30s SLA)
-    def _run_delayed_resolution(t_token: str):
-        time.sleep(20)
-        auto_resolve_complaint_core(t_token)
+    # Trigger background 20-second autonomous resolution ONLY for BOT-eligible complaints
+    if not requires_human_officer:
+        def _run_delayed_resolution(t_token: str):
+            time.sleep(20)
+            auto_resolve_complaint_core(t_token)
 
-    threading.Thread(target=_run_delayed_resolution, args=(token,), daemon=True).start()
+        threading.Thread(target=_run_delayed_resolution, args=(token,), daemon=True).start()
 
     return {
         "status": "success",

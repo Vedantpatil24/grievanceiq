@@ -179,7 +179,7 @@ GRIEVANCE_ACTION_VERBS_EN = {
     "lost", "stolen", "missing", "gone", "disappeared", "unauthorized", "hacked",
     "frozen", "locked", "suspended", "closed", "delayed", "pending", "not received",
     "not credited", "not dispensed", "wrongly", "incorrectly", "fraudulently",
-    "transferred", "withdrawn", "harassed", "threatened", "abused", "denied",
+    "transferred", "withdrawn", "harassed", "harassment", "threatening", "threatened", "abused", "abusive", "denied",
     "cancelled", "duplicate", "overcharged", "applied", "not refunded", "bounced",
     "corrupted", "crashing", "not working", "unable", "cannot", "issue", "problem",
     "complaint", "dispute", "error", "wrong", "fake", "cheated", "scam", "trouble",

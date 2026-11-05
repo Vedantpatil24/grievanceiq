@@ -1,0 +1,11 @@
+=== NATIONAL PAYMENTS CORPORATION OF INDIA (NPCI) - UPI TRANSACTION ADVICE ===
+
+Customer VPA: user@okaxis
+Beneficiary VPA: merchant@icici
+Status: DEBITED_BENEFICIARY_TIMEOUT (Pending reversal)
+RRN / UTR: 982348219012
+Disputed Amount: INR 4,500.00
+Bank Switch: Successful Debit from Account.
+Date :2026-10-25
+
+[Certified Digital Audit Record - GrievanceIQ Compliance]

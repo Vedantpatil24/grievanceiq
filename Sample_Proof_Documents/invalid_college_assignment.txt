@@ -1,0 +1,5 @@
+LAB EXPERIMENT #4 - MICROPROCESSOR 8085 PIN DIAGRAM & INSTRUCTION SET
+Department of Electronics and Computer Engineering
+Name: Student Assignment Notes
+Topic: Architecture of 8086 Intel CPU and Opcode Fetching Machine Cycle.
+No financial transaction, no bank, no account, no UTR number.

@@ -1,0 +1,8 @@
+=== CREDIT CARD MONTHLY STATEMENT & CHARGE DISPUTE VOUCHER ===
+
+Card Ending: **4092
+Billing Cycle: 01/10/2026 - 31/10/2026
+Disputed Entry: POS INTERNATIONAL TXN - USD 82.50 (INR 6,950.00)
+Customer Claim: Card was in possession in Mumbai; unauthorized card-not-present transaction.
+
+[Certified Digital Audit Record - GrievanceIQ Compliance]
