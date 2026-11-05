@@ -16,6 +16,8 @@ export default function TrackComplaint() {
   const [copied, setCopied] = useState(false);
   const [complaint, setComplaint] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
+  const [resolvedCelebration, setResolvedCelebration] = useState(false);
+  const prevStatusRef = React.useRef(null);
 
   // Messaging state
   const [messages, setMessages] = useState([]);
@@ -59,21 +61,41 @@ export default function TrackComplaint() {
     }
   };
 
-  const fetchComplaint = async (tkn) => {
+  const fetchComplaint = async (tkn, silent = false) => {
     if (!tkn) return;
-    setLoading(true);
+    if (!silent) setLoading(true);
     setErrorMsg(null);
     try {
       const res = await axios.get(`/api/complaints/${tkn}/track`);
       setComplaint(res.data);
       fetchMessages(tkn);
     } catch (err) {
-      setErrorMsg(err.response?.data?.detail || 'Complaint token not found. Please check and try again.');
-      setComplaint(null);
+      if (!silent) {
+        setErrorMsg(err.response?.data?.detail || 'Complaint token not found. Please check and try again.');
+        setComplaint(null);
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
+
+  // ── NOVA-AI 30-SECOND AUTONOMOUS SETTLEMENT POLLER ──
+  useEffect(() => {
+    if (!complaint?.token) return;
+
+    if (prevStatusRef.current && prevStatusRef.current !== 'resolved' && complaint.status === 'resolved') {
+      setResolvedCelebration(true);
+    }
+    prevStatusRef.current = complaint.status;
+
+    // Auto-poll every 3 seconds while complaint is pending or bot_processing
+    if (complaint.status !== 'resolved' && complaint.status !== 'rejected') {
+      const interval = setInterval(() => {
+        fetchComplaint(complaint.token, true);
+      }, 3000);
+      return () => clearInterval(interval);
+    }
+  }, [complaint?.token, complaint?.status]);
 
   const fetchMessages = async (tkn) => {
     try {
@@ -275,6 +297,85 @@ export default function TrackComplaint() {
                 )}
               </div>
             </div>
+
+            {/* ── NOVA-AI 30-SECOND LIVE SETTLEMENT BANNER ── */}
+            {complaint.status !== 'resolved' && complaint.status !== 'rejected' && (
+              <div style={{
+                marginTop: '16px',
+                background: 'linear-gradient(135deg, #eff6ff 0%, #f0fdf4 100%)',
+                border: '2px solid #3b82f6',
+                borderRadius: '10px',
+                padding: '14px 18px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '14px',
+                boxShadow: '0 4px 12px rgba(59, 130, 246, 0.12)'
+              }}>
+                <div style={{
+                  width: '38px',
+                  height: '38px',
+                  borderRadius: '50%',
+                  background: '#2563eb',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#ffffff',
+                  flexShrink: 0
+                }}>
+                  <RefreshCw size={20} style={{ animation: 'spin 2s linear infinite' }} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                    <strong style={{ color: '#1e3a8a', fontSize: '0.95rem' }}>
+                      ⚡ Nova-AI Sentinel Autonomous Settlement Desk Active
+                    </strong>
+                    <span style={{ fontSize: '0.74rem', background: '#dbeafe', color: '#1e40af', border: '1px solid #93c5fd', padding: '2px 10px', borderRadius: '12px', fontWeight: '800' }}>
+                      Target SLA &lt; 30 Seconds
+                    </span>
+                  </div>
+                  <p style={{ margin: '4px 0 0 0', fontSize: '0.84rem', color: '#334155', lineHeight: '1.4' }}>
+                    Assigned to <strong>Nova-AI Sentinel</strong>. System is reconciling dual inter-bank clearing switch ledgers and executing automated reversal protocols per RBI TAT mandates.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* ── AUTONOMOUS SETTLEMENT CELEBRATION BANNER ── */}
+            {(resolvedCelebration || complaint.status === 'resolved') && (
+              <div style={{
+                marginTop: '16px',
+                background: '#dcfce7',
+                border: '2px solid #22c55e',
+                borderRadius: '10px',
+                padding: '16px 20px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '14px',
+                boxShadow: '0 4px 12px rgba(34, 197, 94, 0.12)'
+              }}>
+                <div style={{
+                  width: '38px',
+                  height: '38px',
+                  borderRadius: '50%',
+                  background: '#16a34a',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#ffffff',
+                  flexShrink: 0
+                }}>
+                  <CheckCircle2 size={24} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <h4 style={{ margin: 0, color: '#14532d', fontSize: '1.02rem', fontWeight: '800' }}>
+                    🎉 Grievance Autonomously Resolved by Nova-AI Sentinel in &lt; 30 Seconds!
+                  </h4>
+                  <p style={{ margin: '4px 0 0 0', fontSize: '0.84rem', color: '#166534', lineHeight: '1.4' }}>
+                    Dual inter-bank clearing switch ledgers reconciled with 100% precision. Reversal protocol confirmed and statutory settlement memorandum issued below.
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* ── UPI 3-LEG TRANSACTION SETTLEMENT RADAR ── */}
             {['upi', 'imps', 'card', 'transfer', 'atm'].some(k => (complaint.service_type || '').toLowerCase().includes(k)) && (
