@@ -403,8 +403,8 @@ def auto_resolve_complaint_core(token: str) -> bool:
         if not complaint:
             return False
         
-        # Only resolve if complaint is still in an open / bot processing state
-        if complaint.status in ["resolved", "rejected", "escalated"] or complaint.resolution_mode == "HUMAN":
+        # Only resolve if complaint is not terminal and has no human officer assigned
+        if complaint.status in ["resolved", "rejected"] or complaint.current_assigned_officer_id is not None:
             return False
         
         now = datetime.utcnow()
@@ -1052,8 +1052,8 @@ def track_complaint(token: str, db: Session = Depends(get_db)):
     now_utc = datetime.utcnow()
     comp_created = complaint.created_at or now_utc
     age_seconds = (now_utc - comp_created).total_seconds()
-    if (complaint.status in ["bot_processing", "bot_proposed", "open", "pending", "investigating"]
-            and complaint.resolution_mode != "HUMAN"
+    if (complaint.status not in ["resolved", "rejected"]
+            and complaint.current_assigned_officer_id is None
             and age_seconds >= 20):
         auto_resolve_complaint_core(token)
         db.expire_all()
@@ -1192,7 +1192,7 @@ def list_customer_complaints(
             "priority": c.priority,
             "status": c.status,
             "validity_score": c.validity_score,
-            "resolution_mode": c.resolution_mode,
+            "resolution_mode": "HUMAN" if c.assigned_officer else "BOT",
             "resolution_notes": c.resolution_notes,
             "evidence_status": c.evidence_status or "PENDING",
             "reopen_count": c.reopen_count or 0,
@@ -1576,13 +1576,12 @@ def list_admin_complaints(
             "priority": c.priority,
             "status": c.status,
             "validity_score": c.validity_score,
-            "resolution_mode": c.resolution_mode,
+            "resolution_mode": "HUMAN" if c.assigned_officer else "BOT",
             "evidence_status": c.evidence_status or "PENDING",
             "evidence_rejection_reason": c.evidence_rejection_reason,
             "proof_file_path": c.proof_file_path,
             "assigned_officer": (
-                "Nova-AI Sentinel" if c.resolution_mode == "BOT" 
-                else (c.assigned_officer.full_name if c.assigned_officer else "Unassigned")
+                c.assigned_officer.full_name if c.assigned_officer else "Nova-AI Sentinel"
             ),
             "sla": sla_info,
             "created_at": c.created_at.isoformat() if c.created_at else c.submitted_at
@@ -2476,7 +2475,7 @@ def get_ai_performance_metrics(db: Session = Depends(get_db)):
             "validity_score": c.validity_score,
             "amount": c.amount or 0,
             "status": c.status,
-            "resolution_mode": c.resolution_mode,
+            "resolution_mode": "HUMAN" if c.assigned_officer else "BOT",
             "resolved_at": c.resolved_at.isoformat() if c.resolved_at else (c.created_at.isoformat() if c.created_at else None),
             "execution_duration_sec": 24, # Sub-30s automated TAT
             "resolution_notes": c.resolution_notes or "Autonomous statutory redressal memorandum applied under RBI master direction."
@@ -2930,7 +2929,7 @@ def get_officer_complaints(
             "priority": c.priority,
             "status": c.status,
             "validity_score": c.validity_score,
-            "resolution_mode": c.resolution_mode,
+            "resolution_mode": "HUMAN" if c.assigned_officer else "BOT",
             "evidence_status": c.evidence_status or "PENDING",
             "evidence_rejection_reason": c.evidence_rejection_reason,
             "proof_file_path": c.proof_file_path,

@@ -793,14 +793,14 @@ export default function AdminDashboard() {
                           )}
                         </td>
                         <td>
-                          {c.resolution_mode === 'BOT' ? (
+                          {c.assigned_officer && c.assigned_officer !== 'Nova-AI Sentinel' && c.assigned_officer !== 'Unassigned' ? (
+                            <div style={{ fontSize: '0.85rem', color: '#0f172a', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <span>👤</span> {c.assigned_officer}
+                            </div>
+                          ) : (
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: '#eff6ff', color: '#1e40af', border: '1px solid #bfdbfe', padding: '3px 9px', borderRadius: '12px', fontSize: '0.78rem', fontWeight: '700' }}>
                               🤖 Nova-AI Sentinel
                             </span>
-                          ) : (
-                            <div style={{ fontSize: '0.85rem', color: c.assigned_officer === 'Unassigned' ? '#94a3b8' : '#0f172a' }}>
-                              {c.assigned_officer || 'Unassigned'}
-                            </div>
                           )}
                         </td>
                         <td>
