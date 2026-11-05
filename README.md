@@ -262,11 +262,11 @@ This project was developed as a Mini Project for the Department of Computer Engi
 **Class**: T.E. Computer Engineering, Division C and D
 **Academic Year**: 2026-2027
 **Project Guide**: Dr. Rupali Sawant, Associate Professor
-**Head of Department**: Dr. Dhananjay Kalbande, Professor and Head
+**Head of Department**: Dr. Sudhir Dhage, Professor and Head
 
 ## Acknowledgements
 
-We express our sincere gratitude to our project guide Dr. Rupali Sawant for her continuous guidance and mentorship throughout the development of this project. We also thank Dr. Dhananjay Kalbande (Head of Department, Computer Engineering) and Dr. B. N. Chaudhari (Principal, SPIT) for providing the academic infrastructure and institutional support. We acknowledge the Reserve Bank of India for publicly available grievance redressal frameworks and the open-source community for the tools and libraries that made this project possible.
+We express our sincere gratitude to our project guide Dr. Rupali Sawant for her continuous guidance and mentorship throughout the development of this project. We also thank Dr. Sudhir Dhage (Head of Department, Computer Engineering) and Dr. B. N. Chaudhari (Principal, SPIT) for providing the academic infrastructure and institutional support. We acknowledge the Reserve Bank of India for publicly available grievance redressal frameworks and the open-source community for the tools and libraries that made this project possible.
 
 ## License
 

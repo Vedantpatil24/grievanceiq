@@ -94,7 +94,7 @@ def build_front_matter(doc, logo_path):
     p10 = t_sig1.cell(1, 0).paragraphs[0]
     p10.paragraph_format.space_before = Pt(36)
     p10.add_run("__________________________\n(signature)\n").font.size = Pt(10)
-    p10.add_run("Dr. Dhananjay Kalbande\nHead of Department\nDepartment of Computer Engineering").bold = True
+    p10.add_run("Dr. Sudhir Dhage\nHead of Department\nDepartment of Computer Engineering").bold = True
     
     p11 = t_sig1.cell(1, 1).paragraphs[0]
     p11.paragraph_format.space_before = Pt(36)
@@ -154,7 +154,7 @@ def build_front_matter(doc, logo_path):
         "in software engineering, privacy verification, and mathematical modelling were pivotal to the success of this endeavor."
     )
     ack2 = (
-        "We extend our sincere thanks to Dr. Dhananjay Kalbande, Professor and Head of the Department of Computer Engineering, "
+        "We extend our sincere thanks to Dr. Sudhir Dhage, Professor and Head of the Department of Computer Engineering, "
         "for providing state-of-the-art computational infrastructure, academic support, and fostering a vibrant departmental research "
         "ecosystem that inspired our focus on national BFSI challenges."
     )
